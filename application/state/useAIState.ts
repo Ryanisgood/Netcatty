@@ -17,6 +17,7 @@ import {
   STORAGE_KEY_AI_AGENT_MODEL_MAP,
   STORAGE_KEY_AI_AGENT_PROVIDER_MAP,
   STORAGE_KEY_AI_WEB_SEARCH,
+  STORAGE_KEY_AI_PUBLIC_MCP_ENABLED,
 } from '../../infrastructure/config/storageKeys';
 import type {
   AIDraft,
@@ -157,6 +158,9 @@ export function useAIState() {
   const [webSearchConfig, setWebSearchConfigRaw] = useState<WebSearchConfig | null>(() =>
     localStorageAdapter.read<WebSearchConfig>(STORAGE_KEY_AI_WEB_SEARCH) ?? null
   );
+  const [publicMcpEnabled, setPublicMcpEnabledRaw] = useState<boolean>(() =>
+    localStorageAdapter.readBoolean(STORAGE_KEY_AI_PUBLIC_MCP_ENABLED) ?? false
+  );
 
   useEffect(() => {
     setLatestAISessionsSnapshot(sessions);
@@ -261,6 +265,14 @@ export function useAIState() {
     } else {
       localStorageAdapter.remove(STORAGE_KEY_AI_WEB_SEARCH);
     }
+  }, []);
+
+  const setPublicMcpEnabled = useCallback((enabled: boolean) => {
+    setPublicMcpEnabledRaw(enabled);
+    localStorageAdapter.writeBoolean(STORAGE_KEY_AI_PUBLIC_MCP_ENABLED, enabled);
+    emitAIStateChanged(STORAGE_KEY_AI_PUBLIC_MCP_ENABLED);
+    const bridge = getAIBridge();
+    bridge?.publicMcpSetEnabled?.(enabled);
   }, []);
 
   // ── Persist helpers ──
@@ -454,6 +466,12 @@ export function useAIState() {
           case STORAGE_KEY_AI_WEB_SEARCH:
             setWebSearchConfigRaw(localStorageAdapter.read<WebSearchConfig>(STORAGE_KEY_AI_WEB_SEARCH) ?? null);
             break;
+          case STORAGE_KEY_AI_PUBLIC_MCP_ENABLED: {
+            const enabled = localStorageAdapter.readBoolean(STORAGE_KEY_AI_PUBLIC_MCP_ENABLED) ?? false;
+            setPublicMcpEnabledRaw(enabled);
+            getAIBridge()?.publicMcpSetEnabled?.(enabled);
+            break;
+          }
         }
       } catch (err) {
         console.warn('[useAIState] Cross-window sync: failed to process storage event for key', e.key, err);
@@ -515,6 +533,9 @@ export function useAIState() {
         ? 'skills'
         : 'mcp';
     bridge?.aiMcpSetToolIntegrationMode?.(initialToolMode);
+    const initialPublicMcpEnabled =
+      localStorageAdapter.readBoolean(STORAGE_KEY_AI_PUBLIC_MCP_ENABLED) ?? false;
+    bridge?.publicMcpSetEnabled?.(initialPublicMcpEnabled);
   }, []);
 
   // ── Session CRUD ──
@@ -974,6 +995,8 @@ export function useAIState() {
     setAgentProvider,
     webSearchConfig,
     setWebSearchConfig,
+    publicMcpEnabled,
+    setPublicMcpEnabled,
     sessions,
     activeSessionIdMap,
     draftsByScope,
@@ -1029,6 +1052,8 @@ export function useAIState() {
     setAgentProvider,
     webSearchConfig,
     setWebSearchConfig,
+    publicMcpEnabled,
+    setPublicMcpEnabled,
     sessions,
     activeSessionIdMap,
     draftsByScope,

@@ -847,6 +847,18 @@ function createPreloadApi(ctx) {
   aiMcpSetToolIntegrationMode: async (mode) => {
     return ipcRenderer.invoke("netcatty:ai:mcp:set-tool-integration-mode", { mode });
   },
+  publicMcpGetStatus: async () => {
+    return ipcRenderer.invoke("netcatty:public-mcp:get-status");
+  },
+  publicMcpSetEnabled: async (enabled) => {
+    return ipcRenderer.invoke("netcatty:public-mcp:set-enabled", { enabled });
+  },
+  publicMcpCodexGetStatus: async () => {
+    return ipcRenderer.invoke("netcatty:public-mcp:codex:get-status");
+  },
+  publicMcpCodexAdd: async () => {
+    return ipcRenderer.invoke("netcatty:public-mcp:codex:add");
+  },
   aiUserSkillsGetStatus: async () => {
     return ipcRenderer.invoke("netcatty:ai:user-skills:status");
   },

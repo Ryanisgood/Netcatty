@@ -3,6 +3,8 @@
 let bridgesRegistered = false;
 let cloudSyncSessionPassword = null;
 const { readClipboardFiles } = require("../bridges/clipboardFiles.cjs");
+const mcpServerBridge = require("../bridges/mcpServerBridge.cjs");
+const { getPublicMcpDiscoveryFilePath } = require("../cli/publicMcpDiscoveryPath.cjs");
 
 function createBridgeRegistrar(context) {
   const {
@@ -45,6 +47,7 @@ function createBridgeRegistrar(context) {
     getCredentialBridge,
     getAutoUpdateBridge,
     getAiBridge,
+    publicMcpBridge,
     getWindowManager,
     getVaultBackupBridge,
     isPathInside,
@@ -141,6 +144,12 @@ function createBridgeRegistrar(context) {
     fileWatcherBridge.init(deps);
     globalShortcutBridge.init(deps);
     aiBridge.init(deps);
+    publicMcpBridge.init({
+      ...deps,
+      sftpBridge,
+      mcpServerBridge,
+      discoveryFilePath: getPublicMcpDiscoveryFilePath({ userDataDir: app.getPath("userData") }),
+    });
     crashLogBridge.init(deps);
   
     // Initialize compress upload bridge with transferBridge dependency
@@ -173,6 +182,7 @@ function createBridgeRegistrar(context) {
     autoUpdateBridge.init(deps);
     autoUpdateBridge.registerHandlers(ipcMain);
     aiBridge.registerHandlers(ipcMain);
+    publicMcpBridge.registerHandlers(ipcMain);
     crashLogBridge.registerHandlers(ipcMain);
     vaultBackupBridge.registerHandlers(ipcMain, electronModule);
   

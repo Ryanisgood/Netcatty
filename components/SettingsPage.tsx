@@ -116,6 +116,8 @@ const SettingsAITabContainer: React.FC = () => {
                     setMaxIterations={aiState.setMaxIterations}
                     webSearchConfig={aiState.webSearchConfig}
                     setWebSearchConfig={aiState.setWebSearchConfig}
+                    publicMcpEnabled={aiState.publicMcpEnabled}
+                    setPublicMcpEnabled={aiState.setPublicMcpEnabled}
                 />
             </React.Suspense>
         </AITabErrorBoundary>

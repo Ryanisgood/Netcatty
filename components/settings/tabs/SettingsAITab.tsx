@@ -41,6 +41,7 @@ import { AddProviderDropdown } from "./ai/AddProviderDropdown";
 import { CodexConnectionCard } from "./ai/CodexConnectionCard";
 import { ClaudeCodeCard } from "./ai/ClaudeCodeCard";
 import { CopilotCliCard } from "./ai/CopilotCliCard";
+import { PublicMcpCard } from "./ai/PublicMcpCard";
 import { SafetySettings } from "./ai/SafetySettings";
 import { WebSearchSettings } from "./ai/WebSearchSettings";
 import {
@@ -79,6 +80,8 @@ interface SettingsAITabProps {
   setMaxIterations: (value: number) => void;
   webSearchConfig: WebSearchConfig | null;
   setWebSearchConfig: (config: WebSearchConfig | null) => void;
+  publicMcpEnabled: boolean;
+  setPublicMcpEnabled: (enabled: boolean) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,6 +113,8 @@ const SettingsAITab: React.FC<SettingsAITabProps> = ({
   setMaxIterations,
   webSearchConfig,
   setWebSearchConfig,
+  publicMcpEnabled,
+  setPublicMcpEnabled,
 }) => {
   const { t } = useI18n();
   const [editingProviderId, setEditingProviderId] = useState<string | null>(null);
@@ -567,6 +572,13 @@ const SettingsAITab: React.FC<SettingsAITabProps> = ({
               customPath={copilotCustomPath}
               onCustomPathChange={setCopilotCustomPath}
               onRecheckPath={() => void handleCheckCustomPath("copilot")}
+            />
+          </SettingsSection>
+
+          <SettingsSection title="Public MCP">
+            <PublicMcpCard
+              enabled={publicMcpEnabled}
+              setEnabled={setPublicMcpEnabled}
             />
           </SettingsSection>
 

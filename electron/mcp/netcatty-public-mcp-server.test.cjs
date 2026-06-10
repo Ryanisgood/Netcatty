@@ -1,0 +1,221 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+
+const {
+  createUnavailableError,
+  readDiscovery,
+  createPublicBridgeClientManager,
+  mapToolResult,
+  PUBLIC_TOOL_DEFINITIONS,
+} = require("./netcatty-public-mcp-server.cjs");
+
+test("readDiscovery returns parsed payload and missing/invalid discovery become unavailable errors", () => {
+  const missingFs = {
+    readFileSync() {
+      const error = new Error("ENOENT");
+      error.code = "ENOENT";
+      throw error;
+    },
+  };
+  const invalidFs = {
+    readFileSync() {
+      return "{";
+    },
+  };
+  const validFs = {
+    readFileSync() {
+      return JSON.stringify({
+        version: 1,
+        host: "127.0.0.1",
+        port: 47123,
+        token: "tok",
+        pid: 123,
+      });
+    },
+  };
+
+  assert.throws(
+    () => readDiscovery({ discoveryPath: "/tmp/discovery.json", fsModule: missingFs }),
+    (error) => error.code === "PUBLIC_MCP_UNAVAILABLE" && /not running|disabled/i.test(error.message),
+  );
+
+  assert.throws(
+    () => readDiscovery({ discoveryPath: "/tmp/discovery.json", fsModule: invalidFs }),
+    (error) => error.code === "PUBLIC_MCP_UNAVAILABLE" && /invalid/i.test(error.message),
+  );
+
+  assert.deepEqual(
+    readDiscovery({ discoveryPath: "/tmp/discovery.json", fsModule: validFs }),
+    {
+      version: 1,
+      host: "127.0.0.1",
+      port: 47123,
+      token: "tok",
+      pid: 123,
+    },
+  );
+});
+
+test("mapToolResult converts success and error payloads into MCP tool responses", () => {
+  assert.deepEqual(
+    mapToolResult({ ok: true, hosts: [{ sessionId: "ssh-1" }] }),
+    {
+      content: [{ type: "text", text: JSON.stringify({ ok: true, hosts: [{ sessionId: "ssh-1" }] }, null, 2) }],
+    },
+  );
+
+  assert.deepEqual(
+    mapToolResult({ ok: false, error: "Session not found" }),
+    {
+      isError: true,
+      content: [{ type: "text", text: "Error: Session not found" }],
+    },
+  );
+});
+
+test("public tool definitions map to expected RPC methods and params", () => {
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(PUBLIC_TOOL_DEFINITIONS).map(([name, value]) => [name, value.rpcMethod])),
+    {
+      get_environment: "public/getEnvironment",
+      terminal_execute: "public/terminalExecute",
+      terminal_start: "public/terminalStart",
+      terminal_poll: "public/terminalPoll",
+      terminal_stop: "public/terminalStop",
+      sftp_list: "public/sftp/list",
+      sftp_read_file: "public/sftp/readFile",
+      sftp_write_file: "public/sftp/writeFile",
+      sftp_stat: "public/sftp/stat",
+      sftp_home: "public/sftp/home",
+      sftp_mkdir: "public/sftp/mkdir",
+      sftp_delete: "public/sftp/delete",
+      sftp_rename: "public/sftp/rename",
+      sftp_chmod: "public/sftp/chmod",
+    },
+  );
+
+  assert.deepEqual(
+    PUBLIC_TOOL_DEFINITIONS.terminal_poll.buildParams({ jobId: "job-1", offset: 9 }),
+    { jobId: "job-1", offset: 9 },
+  );
+  assert.deepEqual(
+    PUBLIC_TOOL_DEFINITIONS.sftp_write_file.buildParams({
+      sessionId: "ssh-1",
+      path: "/tmp/a",
+      content: "hello",
+      encoding: "utf8",
+    }),
+    { sessionId: "ssh-1", path: "/tmp/a", content: "hello", encoding: "utf8" },
+  );
+  assert.deepEqual(
+    PUBLIC_TOOL_DEFINITIONS.sftp_rename.buildParams({
+      sessionId: "ssh-1",
+      oldPath: "/tmp/a",
+      newPath: "/tmp/b",
+      encoding: "utf8",
+    }),
+    { sessionId: "ssh-1", oldPath: "/tmp/a", newPath: "/tmp/b", encoding: "utf8" },
+  );
+});
+
+test("client manager connects, authenticates, and reconnects after stale discovery/auth changes", async () => {
+  const discoveryQueue = [
+    { host: "127.0.0.1", port: 41001, token: "old-token" },
+    { host: "127.0.0.1", port: 41002, token: "new-token" },
+  ];
+  const connectionAttempts = [];
+  const clients = [];
+
+  function makeClient(label, behavior) {
+    let closed = false;
+    return {
+      label,
+      get closed() {
+        return closed;
+      },
+      async call(method, params) {
+        return await behavior(method, params);
+      },
+      close() {
+        closed = true;
+      },
+    };
+  }
+
+  const manager = createPublicBridgeClientManager({
+    readDiscovery() {
+      return discoveryQueue[0];
+    },
+    async connectPublicBridge(discovery) {
+      connectionAttempts.push({ ...discovery });
+      if (discovery.port === 41001) {
+        const client = makeClient("stale", async (method) => {
+          if (method === "auth/verify") {
+            return { ok: false, error: "stale token" };
+          }
+          throw new Error("should not call methods on stale client");
+        });
+        clients.push(client);
+        return client;
+      }
+
+      const client = makeClient("fresh", async (method, params) => {
+        if (method === "auth/verify") return { ok: true };
+        return { ok: true, method, params };
+      });
+      clients.push(client);
+      return client;
+    },
+    shouldRetryConnection(error) {
+      return /stale|auth|closed|refused/i.test(error.message);
+    },
+    onRetry() {
+      discoveryQueue.shift();
+    },
+  });
+
+  const result = await manager.call("public/getEnvironment", {});
+
+  assert.deepEqual(result, { ok: true, method: "public/getEnvironment", params: {} });
+  assert.deepEqual(connectionAttempts, [
+    { host: "127.0.0.1", port: 41001, token: "old-token" },
+    { host: "127.0.0.1", port: 41002, token: "new-token" },
+  ]);
+  assert.equal(clients[0].closed, true);
+  assert.equal(clients[1].closed, false);
+});
+
+test("client manager reconnects on closed connection and returns unavailable after retry failure", async () => {
+  const discoveryQueue = [
+    { host: "127.0.0.1", port: 41011, token: "token-a" },
+    { host: "127.0.0.1", port: 41012, token: "token-b" },
+  ];
+  const manager = createPublicBridgeClientManager({
+    readDiscovery() {
+      return discoveryQueue[0];
+    },
+    async connectPublicBridge(discovery) {
+      if (discovery.port === 41011) {
+        return {
+          async call(method) {
+            if (method === "auth/verify") return { ok: true };
+            throw new Error("Connection closed");
+          },
+          close() {},
+        };
+      }
+      throw createUnavailableError("Netcatty is not running or Public MCP is disabled.");
+    },
+    shouldRetryConnection(error) {
+      return /closed|refused|stale|auth/i.test(error.message);
+    },
+    onRetry() {
+      discoveryQueue.shift();
+    },
+  });
+
+  await assert.rejects(
+    manager.call("public/getStatus", {}),
+    (error) => error.code === "PUBLIC_MCP_UNAVAILABLE" && /disabled|not running/i.test(error.message),
+  );
+});

@@ -107,7 +107,37 @@ export interface NetcattyAiBridge {
   aiResolveCli?: (params: { command: string; customPath?: string }) => Promise<AgentPathInfo>;
   aiUserSkillsGetStatus?: () => Promise<UserSkillsStatusResult>;
   aiUserSkillsOpenFolder?: () => Promise<UserSkillsStatusResult>;
+  publicMcpGetStatus?: () => Promise<PublicMcpStatus>;
+  publicMcpSetEnabled?: (enabled: boolean) => Promise<PublicMcpStatus>;
+  publicMcpCodexGetStatus?: () => Promise<PublicMcpCodexStatus>;
+  publicMcpCodexAdd?: () => Promise<PublicMcpCodexStatus>;
   openExternal?: (url: string) => Promise<void>;
+}
+
+export type PublicMcpBridgeState = "disabled" | "starting" | "running" | "error" | "unavailable";
+
+export interface PublicMcpStatus {
+  ok: boolean;
+  enabled: boolean;
+  state: PublicMcpBridgeState;
+  host: "127.0.0.1";
+  port: number | null;
+  discoveryPath: string | null;
+  launcherPath: string | null;
+  exposedSessionCount: number;
+  error: string | null;
+}
+
+export type PublicMcpCodexState = "codex_not_found" | "not_configured" | "configured" | "conflict" | "error";
+
+export interface PublicMcpCodexStatus {
+  ok: boolean;
+  state: PublicMcpCodexState;
+  codexPath?: string | null;
+  launcherPath?: string | null;
+  command?: string;
+  existingCommand?: string | null;
+  error?: string | null;
 }
 
 // Agent default configs for registration in externalAgents

@@ -2,8 +2,9 @@
 
 const os = require("node:os");
 const path = require("node:path");
-const CLI_STATE_DIR_NAME = "netcatty-tool-cli";
-const TOOL_CLI_DISCOVERY_ENV_VAR = "NETCATTY_TOOL_CLI_DISCOVERY_FILE";
+
+const PUBLIC_MCP_STATE_DIR_NAME = "public-mcp";
+const PUBLIC_MCP_DISCOVERY_ENV_VAR = "NETCATTY_PUBLIC_MCP_DISCOVERY_FILE";
 const FALLBACK_APP_DATA_DIR_NAME = "netcatty";
 
 function toUnpackedAsarPath(filePath) {
@@ -29,7 +30,7 @@ function getDefaultAppDataDirName(options = {}) {
         return packageJson.name;
       }
     } catch {
-      // Try the next location.
+      // Try next candidate.
     }
   }
 
@@ -50,10 +51,10 @@ function getDefaultUserDataDir() {
 }
 
 function getConfiguredDiscoveryFilePath() {
-  return process.env[TOOL_CLI_DISCOVERY_ENV_VAR] || null;
+  return process.env[PUBLIC_MCP_DISCOVERY_ENV_VAR] || null;
 }
 
-function getToolCliStateDir(options = {}) {
+function getPublicMcpStateDir(options = {}) {
   const discoveryFilePath = getConfiguredDiscoveryFilePath();
   if (discoveryFilePath) {
     return path.dirname(discoveryFilePath);
@@ -61,28 +62,28 @@ function getToolCliStateDir(options = {}) {
   const userDataDir = typeof options.userDataDir === "string" && options.userDataDir
     ? options.userDataDir
     : getDefaultUserDataDir();
-  return path.join(userDataDir, CLI_STATE_DIR_NAME);
+  return path.join(userDataDir, PUBLIC_MCP_STATE_DIR_NAME);
 }
 
-function getCliDiscoveryFilePath(options = {}) {
+function getPublicMcpDiscoveryFilePath(options = {}) {
   const discoveryFilePath = getConfiguredDiscoveryFilePath();
   if (discoveryFilePath) {
     return discoveryFilePath;
   }
-  return path.join(getToolCliStateDir(options), "discovery.json");
+  return path.join(getPublicMcpStateDir(options), "discovery.json");
 }
 
-function getCliLauncherPath() {
+function getPublicMcpLauncherPath() {
   const fileName = process.platform === "win32"
-    ? "netcatty-tool-cli.cmd"
-    : "netcatty-tool-cli";
+    ? "netcatty-public-mcp.cmd"
+    : "netcatty-public-mcp";
   return toUnpackedAsarPath(path.join(__dirname, fileName));
 }
 
 module.exports = {
   getDefaultAppDataDirName,
-  getToolCliStateDir,
-  getCliDiscoveryFilePath,
-  getCliLauncherPath,
-  TOOL_CLI_DISCOVERY_ENV_VAR,
+  getPublicMcpStateDir,
+  getPublicMcpDiscoveryFilePath,
+  getPublicMcpLauncherPath,
+  PUBLIC_MCP_DISCOVERY_ENV_VAR,
 };

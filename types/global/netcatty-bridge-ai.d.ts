@@ -1,5 +1,31 @@
 
 declare global {
+  type PublicMcpBridgeState = 'disabled' | 'starting' | 'running' | 'error' | 'unavailable';
+
+  interface PublicMcpStatus {
+    ok: boolean;
+    enabled: boolean;
+    state: PublicMcpBridgeState;
+    host: '127.0.0.1';
+    port: number | null;
+    discoveryPath: string | null;
+    launcherPath: string | null;
+    exposedSessionCount: number;
+    error: string | null;
+  }
+
+  type PublicMcpCodexState = 'codex_not_found' | 'not_configured' | 'configured' | 'conflict' | 'error';
+
+  interface PublicMcpCodexStatus {
+    ok: boolean;
+    state: PublicMcpCodexState;
+    codexPath?: string | null;
+    launcherPath?: string | null;
+    command?: string;
+    existingCommand?: string | null;
+    error?: string | null;
+  }
+
   interface NetcattyBridge {
     // AI / external agents
     aiSyncProviders?(providers: Array<{ id: string; providerId: string; apiKey?: string; baseURL?: string; enabled: boolean }>): Promise<{ ok: boolean }>;
@@ -100,6 +126,10 @@ declare global {
       connected: boolean;
     }>, chatSessionId?: string): Promise<{ ok: boolean }>;
     aiMcpSetToolIntegrationMode?(mode: 'mcp' | 'skills'): Promise<{ ok: boolean; error?: string }>;
+    publicMcpGetStatus?(): Promise<PublicMcpStatus>;
+    publicMcpSetEnabled?(enabled: boolean): Promise<PublicMcpStatus>;
+    publicMcpCodexGetStatus?(): Promise<PublicMcpCodexStatus>;
+    publicMcpCodexAdd?(): Promise<PublicMcpCodexStatus>;
     aiUserSkillsGetStatus?(): Promise<{
       ok: boolean;
       directoryPath?: string;

@@ -106,6 +106,7 @@ const localFsBridge = require("./bridges/localFsBridge.cjs");
 const transferBridge = require("./bridges/transferBridge.cjs");
 const portForwardingBridge = require("./bridges/portForwardingBridge.cjs");
 const terminalBridge = require("./bridges/terminalBridge.cjs");
+const publicMcpBridge = require("./bridges/publicMcpBridge.cjs");
 const sessionLogStreamManager = require("./bridges/sessionLogStreamManager.cjs");
 // crashLogBridge is required at the top of the file (before error handlers)
 const getOauthBridge = createLazyModule("./bridges/oauthBridge.cjs");
@@ -392,6 +393,7 @@ const registerBridges = createBridgeRegistrar({
   getCredentialBridge,
   getAutoUpdateBridge,
   getAiBridge,
+  publicMcpBridge,
   getWindowManager,
   getVaultBackupBridge,
   isPathInside,
@@ -841,6 +843,11 @@ if (!gotLock) {
       getAiBridge().cleanup();
     } catch (err) {
       console.warn("Error during AI bridge cleanup:", err);
+    }
+    try {
+      publicMcpBridge.cleanup();
+    } catch (err) {
+      console.warn("Error during Public MCP bridge cleanup:", err);
     }
   });
 }

@@ -48,6 +48,7 @@ import { localStorageAdapter } from './infrastructure/persistence/localStorageAd
 import {
   STORAGE_KEY_DEBUG_HOTKEYS,
   STORAGE_KEY_PORT_FORWARDING,
+  STORAGE_KEY_AI_PUBLIC_MCP_ENABLED,
 } from './infrastructure/config/storageKeys';
 import { getEffectiveKnownHosts } from './infrastructure/syncHelpers';
 import { ToastProvider, toast } from './components/ui/toast';
@@ -141,6 +142,11 @@ function App({ settings }: { settings: SettingsState }) {
     reapplyCurrentTheme,
     workspaceFocusStyle,
   } = settings;
+
+  useEffect(() => {
+    const enabled = localStorageAdapter.readBoolean(STORAGE_KEY_AI_PUBLIC_MCP_ENABLED) ?? false;
+    void netcattyBridge.get()?.publicMcpSetEnabled?.(enabled);
+  }, []);
 
   const discoveredShells = useDiscoveredShells();
 
