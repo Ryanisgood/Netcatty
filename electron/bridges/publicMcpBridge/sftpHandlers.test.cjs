@@ -196,6 +196,26 @@ test("sftp handlers reject non-public sessions before opening handles", async ()
   assert.equal(calls.length, 0);
 });
 
+test("sftp handlers use the latest command timeout for each operation", async () => {
+  let timeoutMs = 120000;
+  const { ctx, calls } = makeContext({
+    getCommandTimeoutMs() {
+      return timeoutMs;
+    },
+  });
+  const handlers = createPublicSftpHandlers(ctx);
+
+  await handlers.handleSftpWriteFile({ sessionId: "ssh-1", path: "/tmp/demo.txt", content: "hello" });
+  timeoutMs = 30000;
+  await handlers.handleSftpList({ sessionId: "ssh-1", path: "/tmp" });
+
+  const opened = calls.filter((entry) => entry.method === "openSftpForSession");
+  assert.equal(opened[0].payload.timeoutMs, 120000);
+  assert.equal(opened[1].payload.timeoutMs, 30000);
+  assert.equal(calls.find((entry) => entry.method === "writeSftp").payload.timeoutMs, 120000);
+  assert.equal(calls.find((entry) => entry.method === "listSftp").payload.timeoutMs, 30000);
+});
+
 test("sftp handlers close handles on failure and expose cleanup for active operations", async () => {
   const { ctx, closes, activeOps } = makeContext({
     sftpBridge: {

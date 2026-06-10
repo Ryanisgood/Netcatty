@@ -5,6 +5,7 @@ function createPublicSftpHandlers(ctx) {
     registry,
     sftpBridge,
     commandTimeoutMs,
+    getCommandTimeoutMs,
     AbortController,
     setTimeout,
     clearTimeout,
@@ -15,6 +16,10 @@ function createPublicSftpHandlers(ctx) {
 
   function getEncodingStateKey(sessionId) {
     return `public:${sessionId}`;
+  }
+
+  function resolveCommandTimeoutMs() {
+    return Math.max(1, Number(getCommandTimeoutMs?.()) || Number(commandTimeoutMs) || 60000);
   }
 
   async function withPublicSessionSftp(params, action) {
@@ -46,16 +51,17 @@ function createPublicSftpHandlers(ctx) {
     activeCleanup.add(cancelAndClose);
 
     try {
+      const timeoutMs = resolveCommandTimeoutMs();
       timeoutId = setTimeout(() => {
         abortController.abort(new Error("SFTP operation timed out"));
         void closeSftpHandle().catch(() => {});
-      }, commandTimeoutMs);
+      }, timeoutMs);
 
       const opened = await sftpBridge.openSftpForSession(null, {
         sessionId: params.sessionId,
         encodingStateKey,
         abortSignal: abortController.signal,
-        timeoutMs: commandTimeoutMs,
+        timeoutMs,
       });
       if (abortController.signal.aborted) {
         throw abortController.signal.reason || new Error("Cancelled");
@@ -69,7 +75,7 @@ function createPublicSftpHandlers(ctx) {
         ...params,
         sftpId,
         abortSignal: abortController.signal,
-        timeoutMs: commandTimeoutMs,
+        timeoutMs,
       });
     } finally {
       unregister();
