@@ -385,7 +385,6 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, isStreaming
         })}
 
         {/* Standalone MCP/SDK approval requests (not tied to SDK tool calls) */}
-        {standaloneApprovals.map(([id, req]) => {
         {!hideToolCalls && standaloneApprovals.map(([id, req]) => {
             return (
               <React.Profiler key={id} {...getAIPanelProfilerProps('AIChatPanel.ToolCall.Approval')}>
