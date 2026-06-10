@@ -718,10 +718,27 @@ if (!gotLock) {
   // before-quit, a dirty-cancelled quit leaves isQuitting=true and changes
   // later window-close behavior (e.g. close-to-tray hooks that gate on
   // !isQuitting would stop firing).
-  const commitQuit = () => {
+  let quitCleanupInFlight = false;
+  const cleanupPublicMcpBeforeQuit = async () => {
+    try {
+      await publicMcpBridge.cleanup();
+    } catch (err) {
+      console.warn("Error during Public MCP bridge cleanup:", err);
+    }
+  };
+  const commitQuit = (event) => {
+    if (quitCleanupInFlight) {
+      event?.preventDefault?.();
+      return;
+    }
+    quitCleanupInFlight = true;
     getWindowManager().setIsQuitting(true);
-    quitConfirmed = true;
-    app.quit();
+    event?.preventDefault?.();
+    void cleanupPublicMcpBeforeQuit().finally(() => {
+      quitCleanupInFlight = false;
+      quitConfirmed = true;
+      app.quit();
+    });
   };
 
   app.on("before-quit", (event) => {
@@ -761,7 +778,7 @@ if (!gotLock) {
       (candidate.isVisible?.() || candidate.isMinimized?.())
     ));
     if (reachableMainWindows.length === 0) {
-      commitQuit();
+      commitQuit(event);
       return;
     }
 
@@ -771,7 +788,7 @@ if (!gotLock) {
       .map((candidate) => candidate.webContents)
       .filter((wc) => wc && !wc.isDestroyed?.() && !wc.isCrashed?.());
     if (queryableWebContents.length === 0) {
-      commitQuit();
+      commitQuit(event);
       return;
     }
 
@@ -790,7 +807,7 @@ if (!gotLock) {
         quitGuardChannelBusy = false;
         const hasDirty = dirtyResults.some(Boolean);
         if (!hasDirty) {
-          commitQuit();
+          commitQuit(event);
           return;
         }
         // hasDirty: the renderer showed a toast for dirty editors and the user
@@ -813,7 +830,7 @@ if (!gotLock) {
         // un-quittable. Fail open and let the quit through.
         console.warn("[Main] dirty-editor quit guard failed:", err);
         quitGuardChannelBusy = false;
-        commitQuit();
+        commitQuit(event);
       });
   });
 
@@ -845,7 +862,7 @@ if (!gotLock) {
       console.warn("Error during AI bridge cleanup:", err);
     }
     try {
-      publicMcpBridge.cleanup();
+      void publicMcpBridge.cleanup();
     } catch (err) {
       console.warn("Error during Public MCP bridge cleanup:", err);
     }

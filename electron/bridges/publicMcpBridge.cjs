@@ -322,6 +322,9 @@ function createPublicMcpBridge(overrides = {}) {
     discoveryFilePath = options.discoveryFilePath || discoveryFilePath;
     mcpServerBridge = options.mcpServerBridge || mcpServerBridge;
     commandTimeoutMs = mcpServerBridge?.getCommandTimeoutMs?.() || commandTimeoutMs;
+    if (discoveryFilePath) {
+      deps.removePublicDiscovery(discoveryFilePath);
+    }
     resetRuntime();
     codexSetup = deps.createPublicMcpCodexSetup({
       launcherPath: deps.getPublicMcpLauncherPath() || null,

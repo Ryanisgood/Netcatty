@@ -309,7 +309,7 @@ function createBridgeHarness(overrides = {}) {
 }
 
 test("public bridge starts disabled and reports renderer-facing status", async () => {
-  const { bridge } = createBridgeHarness();
+  const { bridge, discoveryRemoves } = createBridgeHarness();
 
   const status = bridge.getStatus();
 
@@ -324,10 +324,11 @@ test("public bridge starts disabled and reports renderer-facing status", async (
     exposedSessionCount: 1,
     error: null,
   });
+  assert.deepEqual(discoveryRemoves, ["/tmp/netcatty-public/discovery.json"]);
 });
 
 test("public bridge setEnabled(true) starts server, writes discovery, and is idempotent", async () => {
-  const { bridge, discoveryWrites, tcpServers } = createBridgeHarness();
+  const { bridge, discoveryWrites, discoveryRemoves, tcpServers } = createBridgeHarness();
 
   const first = await bridge.setEnabled(true);
   const second = await bridge.setEnabled(true);
@@ -339,6 +340,7 @@ test("public bridge setEnabled(true) starts server, writes discovery, and is ide
   assert.equal(discoveryWrites[0].filePath, "/tmp/netcatty-public/discovery.json");
   assert.equal(discoveryWrites[0].payload.port, 47001);
   assert.equal(typeof discoveryWrites[0].payload.token, "string");
+  assert.deepEqual(discoveryRemoves, ["/tmp/netcatty-public/discovery.json"]);
   assert.equal(tcpServers.length, 1);
   assert.equal(tcpServers[0].starts, 1);
   assert.equal(second.port, 47001);
@@ -357,6 +359,7 @@ test("public bridge setEnabled(false) stops server, removes discovery, and is id
   assert.equal(first.port, null);
   assert.equal(tcpServers[0].stops, 1);
   assert.deepEqual(discoveryRemoves, [
+    "/tmp/netcatty-public/discovery.json",
     "/tmp/netcatty-public/discovery.json",
     "/tmp/netcatty-public/discovery.json",
   ]);
@@ -440,6 +443,25 @@ test("public bridge recovers from startup errors and rotates token on re-enable"
   assert.notEqual(firstToken, secondToken);
 });
 
+test("public bridge removes stale discovery on init and rotates token after app restart", async () => {
+  let tokenSeq = 0;
+  const randomBytes = (size) => {
+    tokenSeq += 1;
+    return Buffer.from(String(tokenSeq).padStart(size * 2, "0").slice(0, size * 2), "hex");
+  };
+
+  const firstHarness = createBridgeHarness({ randomBytes });
+  await firstHarness.bridge.setEnabled(true);
+  const firstToken = firstHarness.discoveryWrites[0].payload.token;
+
+  const secondHarness = createBridgeHarness({ randomBytes });
+  await secondHarness.bridge.setEnabled(true);
+  const secondToken = secondHarness.discoveryWrites[0].payload.token;
+
+  assert.deepEqual(secondHarness.discoveryRemoves, ["/tmp/netcatty-public/discovery.json"]);
+  assert.notEqual(firstToken, secondToken);
+});
+
 test("public bridge cleanup stops active runtime and leaves disabled status", async () => {
   const { bridge, tcpServers, terminalCleanupCalls, sftpCleanupCalls, discoveryRemoves } = createBridgeHarness();
 
@@ -449,7 +471,7 @@ test("public bridge cleanup stops active runtime and leaves disabled status", as
   assert.equal(tcpServers[0].stops, 1);
   assert.equal(terminalCleanupCalls.length, 1);
   assert.equal(sftpCleanupCalls.length, 1);
-  assert.equal(discoveryRemoves.length, 1);
+  assert.equal(discoveryRemoves.length, 2);
   assert.equal(bridge.getStatus().state, "disabled");
 });
 
