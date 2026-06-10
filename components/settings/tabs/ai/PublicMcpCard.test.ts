@@ -6,7 +6,11 @@ import {
   buildCodexTomlSnippet,
   formatClaudeAddCommand,
   formatCodexAddCommand,
+  PUBLIC_MCP_I18N_KEYS,
 } from "./PublicMcpCard.tsx";
+import en from "../../../../application/i18n/locales/en.ts";
+import ru from "../../../../application/i18n/locales/ru.ts";
+import zhCN from "../../../../application/i18n/locales/zh-CN.ts";
 
 test("formatCodexAddCommand quotes launcher paths with spaces", () => {
   assert.equal(
@@ -43,4 +47,17 @@ test("buildClaudeSnippet preserves launcher path via JSON escaping", () => {
       },
     }, null, 2),
   );
+});
+
+test("Public MCP settings strings are localized in every supported language", () => {
+  for (const [locale, messages] of Object.entries({ en, "zh-CN": zhCN, ru })) {
+    for (const key of PUBLIC_MCP_I18N_KEYS) {
+      assert.equal(
+        typeof messages[key],
+        "string",
+        `${locale} is missing ${key}`,
+      );
+      assert.notEqual(messages[key], "", `${locale} has empty ${key}`);
+    }
+  }
 });

@@ -9,75 +9,116 @@ import { getBridge } from "./types";
 
 type PublicMcpClient = "codex" | "claude";
 
-function getBridgeStatusView(status: PublicMcpStatus | null, enabled: boolean) {
+export const PUBLIC_MCP_I18N_KEYS = [
+  "ai.publicMcp.status.unavailable",
+  "ai.publicMcp.status.disabled",
+  "ai.publicMcp.status.running",
+  "ai.publicMcp.status.starting",
+  "ai.publicMcp.status.error",
+  "ai.publicMcp.status.configured",
+  "ai.publicMcp.status.notConfigured",
+  "ai.publicMcp.status.checking",
+  "ai.publicMcp.status.codexNotFound",
+  "ai.publicMcp.status.claudeNotFound",
+  "ai.publicMcp.status.conflict",
+  "ai.publicMcp.description",
+  "ai.publicMcp.sessionsExposed",
+  "ai.publicMcp.security",
+  "ai.publicMcp.security.description",
+  "ai.publicMcp.discovery",
+  "ai.publicMcp.launcher",
+  "ai.publicMcp.unavailable",
+  "ai.publicMcp.bridgeUnavailable",
+  "ai.publicMcp.copy",
+  "ai.publicMcp.copied",
+  "ai.publicMcp.copyFailed",
+  "ai.publicMcp.clientConfiguration",
+  "ai.publicMcp.clientConfiguration.description",
+  "ai.publicMcp.addToCodex",
+  "ai.publicMcp.addToClaude",
+  "ai.publicMcp.codexAdded",
+  "ai.publicMcp.claudeAdded",
+  "ai.publicMcp.installCodex",
+  "ai.publicMcp.installClaude",
+  "ai.publicMcp.conflict.description",
+  "ai.publicMcp.enableForLauncher",
+] as const;
+
+type PublicMcpI18nKey = typeof PUBLIC_MCP_I18N_KEYS[number];
+type PublicMcpStatusView = {
+  labelKey: PublicMcpI18nKey;
+  className: string;
+};
+
+function getBridgeStatusView(status: PublicMcpStatus | null, enabled: boolean): PublicMcpStatusView {
   if (!status || !status.ok) {
     return {
-      label: enabled ? "Unavailable" : "Disabled",
+      labelKey: enabled ? "ai.publicMcp.status.unavailable" : "ai.publicMcp.status.disabled",
       className: enabled ? "text-amber-500" : "text-muted-foreground",
     };
   }
 
   if (status.state === "running") {
     return {
-      label: "Running",
+      labelKey: "ai.publicMcp.status.running",
       className: "text-emerald-500",
     };
   }
   if (status.state === "starting") {
     return {
-      label: "Starting",
+      labelKey: "ai.publicMcp.status.starting",
       className: "text-amber-500",
     };
   }
   if (status.state === "error") {
     return {
-      label: "Error",
+      labelKey: "ai.publicMcp.status.error",
       className: "text-destructive",
     };
   }
   if (status.state === "unavailable") {
     return {
-      label: "Unavailable",
+      labelKey: "ai.publicMcp.status.unavailable",
       className: "text-amber-500",
     };
   }
   return {
-    label: "Disabled",
+    labelKey: "ai.publicMcp.status.disabled",
     className: "text-muted-foreground",
   };
 }
 
-function getCodexStatusView(status: PublicMcpCodexStatus | null) {
+function getCodexStatusView(status: PublicMcpCodexStatus | null): PublicMcpStatusView {
   switch (status?.state) {
     case "configured":
-      return { label: "Configured", className: "text-emerald-500" };
+      return { labelKey: "ai.publicMcp.status.configured", className: "text-emerald-500" };
     case "not_configured":
-      return { label: "Not configured", className: "text-muted-foreground" };
+      return { labelKey: "ai.publicMcp.status.notConfigured", className: "text-muted-foreground" };
     case "codex_not_found":
-      return { label: "Codex not found", className: "text-amber-500" };
+      return { labelKey: "ai.publicMcp.status.codexNotFound", className: "text-amber-500" };
     case "conflict":
-      return { label: "Conflict", className: "text-destructive" };
+      return { labelKey: "ai.publicMcp.status.conflict", className: "text-destructive" };
     case "error":
-      return { label: "Error", className: "text-destructive" };
+      return { labelKey: "ai.publicMcp.status.error", className: "text-destructive" };
     default:
-      return { label: "Checking", className: "text-muted-foreground" };
+      return { labelKey: "ai.publicMcp.status.checking", className: "text-muted-foreground" };
   }
 }
 
-function getClaudeStatusView(status: PublicMcpClaudeStatus | null) {
+function getClaudeStatusView(status: PublicMcpClaudeStatus | null): PublicMcpStatusView {
   switch (status?.state) {
     case "configured":
-      return { label: "Configured", className: "text-emerald-500" };
+      return { labelKey: "ai.publicMcp.status.configured", className: "text-emerald-500" };
     case "not_configured":
-      return { label: "Not configured", className: "text-muted-foreground" };
+      return { labelKey: "ai.publicMcp.status.notConfigured", className: "text-muted-foreground" };
     case "claude_not_found":
-      return { label: "Claude Code not found", className: "text-amber-500" };
+      return { labelKey: "ai.publicMcp.status.claudeNotFound", className: "text-amber-500" };
     case "conflict":
-      return { label: "Conflict", className: "text-destructive" };
+      return { labelKey: "ai.publicMcp.status.conflict", className: "text-destructive" };
     case "error":
-      return { label: "Error", className: "text-destructive" };
+      return { labelKey: "ai.publicMcp.status.error", className: "text-destructive" };
     default:
-      return { label: "Checking", className: "text-muted-foreground" };
+      return { labelKey: "ai.publicMcp.status.checking", className: "text-muted-foreground" };
   }
 }
 
@@ -132,6 +173,7 @@ export const PublicMcpCard: React.FC<{
   const [isAddingClaude, setIsAddingClaude] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<{ tone: "error" | "warning" | "success"; text: string } | null>(null);
+  const bridgeUnavailableMessage = t("ai.publicMcp.bridgeUnavailable");
 
   const refreshStatus = useCallback(async (options?: { quiet?: boolean }) => {
     const bridge = getBridge();
@@ -145,7 +187,7 @@ export const PublicMcpCard: React.FC<{
         discoveryPath: null,
         launcherPath: null,
         exposedSessionCount: 0,
-        error: "Public MCP bridge unavailable",
+        error: bridgeUnavailableMessage,
       });
       setCodexStatus({
         ok: true,
@@ -154,7 +196,7 @@ export const PublicMcpCard: React.FC<{
         launcherPath: null,
         command: "",
         existingCommand: null,
-        error: "Public MCP bridge unavailable",
+        error: bridgeUnavailableMessage,
       });
       setClaudeStatus({
         ok: true,
@@ -163,7 +205,7 @@ export const PublicMcpCard: React.FC<{
         launcherPath: null,
         command: "",
         existingCommand: null,
-        error: "Public MCP bridge unavailable",
+        error: bridgeUnavailableMessage,
       });
       return;
     }
@@ -186,7 +228,7 @@ export const PublicMcpCard: React.FC<{
         setIsRefreshing(false);
       }
     }
-  }, [enabled]);
+  }, [bridgeUnavailableMessage, enabled]);
 
   useEffect(() => {
     void refreshStatus();
@@ -243,9 +285,9 @@ export const PublicMcpCard: React.FC<{
         setCopied((current) => (current === key ? null : current));
       }, 1200);
     } catch {
-      setActionMessage({ tone: "error", text: "Copy failed. Try copying manually." });
+      setActionMessage({ tone: "error", text: t("ai.publicMcp.copyFailed") });
     }
-  }, []);
+  }, [t]);
 
   const handleAddToCodex = useCallback(async () => {
     const bridge = getBridge();
@@ -258,17 +300,17 @@ export const PublicMcpCard: React.FC<{
       if (result.state === "configured") {
         setActionMessage({
           tone: "success",
-          text: "Codex MCP entry added. Restart Codex or open a new Codex session.",
+          text: t("ai.publicMcp.codexAdded"),
         });
       } else if (result.state === "codex_not_found") {
         setActionMessage({
           tone: "warning",
-          text: "Install Codex separately, then click Refresh.",
+          text: t("ai.publicMcp.installCodex"),
         });
       } else if (result.state === "conflict") {
         setActionMessage({
           tone: "error",
-          text: "A netcatty-public entry already exists and points elsewhere. Remove or edit it manually.",
+          text: t("ai.publicMcp.conflict.description"),
         });
       } else if (result.state === "error" && result.error) {
         setActionMessage({ tone: "error", text: result.error });
@@ -277,7 +319,7 @@ export const PublicMcpCard: React.FC<{
     } finally {
       setIsAddingCodex(false);
     }
-  }, [refreshStatus]);
+  }, [refreshStatus, t]);
 
   const handleAddToClaude = useCallback(async () => {
     const bridge = getBridge();
@@ -290,17 +332,17 @@ export const PublicMcpCard: React.FC<{
       if (result.state === "configured") {
         setActionMessage({
           tone: "success",
-          text: "Claude Code MCP entry added. Restart Claude Code or open a new Claude Code session.",
+          text: t("ai.publicMcp.claudeAdded"),
         });
       } else if (result.state === "claude_not_found") {
         setActionMessage({
           tone: "warning",
-          text: "Install Claude Code separately, then click Refresh.",
+          text: t("ai.publicMcp.installClaude"),
         });
       } else if (result.state === "conflict") {
         setActionMessage({
           tone: "error",
-          text: "A netcatty-public entry already exists and points elsewhere. Remove or edit it manually.",
+          text: t("ai.publicMcp.conflict.description"),
         });
       } else if (result.state === "error" && result.error) {
         setActionMessage({ tone: "error", text: result.error });
@@ -309,7 +351,7 @@ export const PublicMcpCard: React.FC<{
     } finally {
       setIsAddingClaude(false);
     }
-  }, [refreshStatus]);
+  }, [refreshStatus, t]);
 
   const selectedClientStatusView = selectedClient === "codex" ? codexStatusView : claudeStatusView;
 
@@ -317,10 +359,10 @@ export const PublicMcpCard: React.FC<{
     <div className="rounded-lg border bg-card p-4 space-y-3">
       <div className="flex items-start justify-between gap-4">
         <p className="min-w-0 text-xs text-muted-foreground leading-5">
-          Expose only currently open live SSH PTY sessions to standard MCP clients over localhost. Token auth rotates each Netcatty launch.
+          {t("ai.publicMcp.description")}
         </p>
         <div className={cn("text-xs font-medium shrink-0", bridgeStatusView.className)}>
-          {bridgeStatusView.label}
+          {t(bridgeStatusView.labelKey)}
         </div>
       </div>
 
@@ -328,7 +370,7 @@ export const PublicMcpCard: React.FC<{
         <div className="min-w-0">
           <div className="text-sm font-medium">Public MCP</div>
           <div className="text-xs text-muted-foreground">
-            Sessions exposed: {status?.exposedSessionCount ?? 0}
+            {t("ai.publicMcp.sessionsExposed", { count: status?.exposedSessionCount ?? 0 })}
           </div>
         </div>
         <Toggle checked={enabled} onChange={(nextEnabled) => void handleToggle(nextEnabled)} />
@@ -336,16 +378,16 @@ export const PublicMcpCard: React.FC<{
 
       <div className="space-y-2 text-xs">
         <div className="grid gap-1">
-          <div className="text-muted-foreground">Security</div>
-          <div>Listens on `127.0.0.1`, exposes only live SSH PTY sessions, and removes discovery when disabled.</div>
+          <div className="text-muted-foreground">{t("ai.publicMcp.security")}</div>
+          <div>{t("ai.publicMcp.security.description")}</div>
         </div>
         <div className="grid gap-1">
-          <div className="text-muted-foreground">Discovery</div>
-          <div className="font-mono break-all">{status?.discoveryPath || "Unavailable"}</div>
+          <div className="text-muted-foreground">{t("ai.publicMcp.discovery")}</div>
+          <div className="font-mono break-all">{status?.discoveryPath || t("ai.publicMcp.unavailable")}</div>
         </div>
         <div className="grid gap-1">
-          <div className="text-muted-foreground">Launcher</div>
-          <div className="font-mono break-all">{launcherPath || "Unavailable"}</div>
+          <div className="text-muted-foreground">{t("ai.publicMcp.launcher")}</div>
+          <div className="font-mono break-all">{launcherPath || t("ai.publicMcp.unavailable")}</div>
         </div>
         {status?.error ? (
           <div className="text-destructive">{status.error}</div>
@@ -355,9 +397,9 @@ export const PublicMcpCard: React.FC<{
       <div className="border-t border-border/40 pt-3 space-y-3">
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
-            <div className="text-sm font-medium">Client configuration</div>
+            <div className="text-sm font-medium">{t("ai.publicMcp.clientConfiguration")}</div>
             <div className="text-xs text-muted-foreground">
-              Choose one MCP client to configure.
+              {t("ai.publicMcp.clientConfiguration.description")}
             </div>
           </div>
           <Select
@@ -382,13 +424,13 @@ export const PublicMcpCard: React.FC<{
           {selectedClient === "codex" && canAddToCodex ? (
             <Button size="sm" onClick={() => void handleAddToCodex()} disabled={isAddingCodex || !launcherPath}>
               <RefreshCw size={14} className={cn("mr-1.5", isAddingCodex && "animate-spin")} />
-              Add to Codex
+              {t("ai.publicMcp.addToCodex")}
             </Button>
           ) : null}
           {selectedClient === "claude" && canAddToClaude ? (
             <Button size="sm" onClick={() => void handleAddToClaude()} disabled={isAddingClaude || !launcherPath}>
               <RefreshCw size={14} className={cn("mr-1.5", isAddingClaude && "animate-spin")} />
-              Add to Claude Code
+              {t("ai.publicMcp.addToClaude")}
             </Button>
           ) : null}
         </div>
@@ -400,23 +442,23 @@ export const PublicMcpCard: React.FC<{
             {selectedClient === "codex" ? "Codex" : "Claude Code"}
           </div>
           <div className={cn("text-xs font-medium", selectedClientStatusView.className)}>
-            {selectedClientStatusView.label}
+            {t(selectedClientStatusView.labelKey)}
           </div>
         </div>
         {selectedClient === "codex" && codexStatus?.state === "codex_not_found" ? (
-          <p className="text-xs text-amber-500">Install Codex separately, then click Refresh.</p>
+          <p className="text-xs text-amber-500">{t("ai.publicMcp.installCodex")}</p>
         ) : null}
         {selectedClient === "claude" && claudeStatus?.state === "claude_not_found" ? (
-          <p className="text-xs text-amber-500">Install Claude Code separately, then click Refresh.</p>
+          <p className="text-xs text-amber-500">{t("ai.publicMcp.installClaude")}</p>
         ) : null}
         {selectedClient === "codex" && codexStatus?.state === "conflict" ? (
           <p className="text-xs text-destructive">
-            A netcatty-public entry already exists and points elsewhere. Remove or edit it manually.
+            {t("ai.publicMcp.conflict.description")}
           </p>
         ) : null}
         {selectedClient === "claude" && claudeStatus?.state === "conflict" ? (
           <p className="text-xs text-destructive">
-            A netcatty-public entry already exists and points elsewhere. Remove or edit it manually.
+            {t("ai.publicMcp.conflict.description")}
           </p>
         ) : null}
         {selectedClient === "codex" && codexStatus?.error ? (
@@ -431,7 +473,7 @@ export const PublicMcpCard: React.FC<{
               <code className="min-w-0 break-all text-[11px]">{codexCommand}</code>
               <Button variant="ghost" size="sm" onClick={() => void copyText("codex-command", codexCommand)}>
                 <Copy size={14} className="mr-1.5" />
-                {copied === "codex-command" ? "Copied" : "Copy"}
+                {copied === "codex-command" ? t("ai.publicMcp.copied") : t("ai.publicMcp.copy")}
               </Button>
             </div>
           </div>
@@ -442,7 +484,7 @@ export const PublicMcpCard: React.FC<{
               <code className="min-w-0 break-all text-[11px]">{claudeCommand}</code>
               <Button variant="ghost" size="sm" onClick={() => void copyText("claude-command", claudeCommand)}>
                 <Copy size={14} className="mr-1.5" />
-                {copied === "claude-command" ? "Copied" : "Copy"}
+                {copied === "claude-command" ? t("ai.publicMcp.copied") : t("ai.publicMcp.copy")}
               </Button>
             </div>
           </div>
@@ -453,7 +495,7 @@ export const PublicMcpCard: React.FC<{
               <pre className="min-w-0 whitespace-pre-wrap break-all text-[11px]">{codexTomlSnippet}</pre>
               <Button variant="ghost" size="sm" onClick={() => void copyText("codex-toml", codexTomlSnippet)}>
                 <Copy size={14} className="mr-1.5" />
-                {copied === "codex-toml" ? "Copied" : "Copy"}
+                {copied === "codex-toml" ? t("ai.publicMcp.copied") : t("ai.publicMcp.copy")}
               </Button>
             </div>
           </div>
@@ -464,13 +506,13 @@ export const PublicMcpCard: React.FC<{
               <pre className="min-w-0 whitespace-pre-wrap break-all text-[11px]">{claudeSnippet}</pre>
               <Button variant="ghost" size="sm" onClick={() => void copyText("claude", claudeSnippet)}>
                 <Copy size={14} className="mr-1.5" />
-                {copied === "claude" ? "Copied" : "Copy"}
+                {copied === "claude" ? t("ai.publicMcp.copied") : t("ai.publicMcp.copy")}
               </Button>
             </div>
           </div>
         ) : null}
         {!launcherPath ? (
-          <p className="text-xs text-amber-500">Enable Public MCP to get a usable launcher path.</p>
+          <p className="text-xs text-amber-500">{t("ai.publicMcp.enableForLauncher")}</p>
         ) : null}
       </div>
 
