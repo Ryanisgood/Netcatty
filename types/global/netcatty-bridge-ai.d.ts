@@ -17,6 +17,8 @@ declare global {
     discoveryPath: string | null;
     launcherPath: string | null;
     exposedSessionCount: number;
+    permissionMode?: 'observer' | 'confirm' | 'autonomous';
+    approvalTimeoutMs?: number | null;
     mode?: PublicMcpMode;
     idleTimeoutMinutes?: number;
     lastActivityAt?: number | null;

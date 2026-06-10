@@ -8,6 +8,7 @@ const { getPublicMcpDiscoveryFilePath } = require("../cli/publicMcpDiscoveryPath
 const DEFAULT_RPC_TIMEOUT_MS = 30_000;
 const DEFAULT_OPERATION_TIMEOUT_MS = 60_000;
 const RPC_TIMEOUT_BUFFER_MS = 5_000;
+const DEFAULT_APPROVAL_TIMEOUT_MS = 110_000;
 const LONG_RUNNING_METHODS = new Set([
   "public/terminalExecute",
   "public/terminalStart",
@@ -16,6 +17,15 @@ const LONG_RUNNING_METHODS = new Set([
   "public/sftp/writeFile",
   "public/sftp/stat",
   "public/sftp/home",
+  "public/sftp/mkdir",
+  "public/sftp/delete",
+  "public/sftp/rename",
+  "public/sftp/chmod",
+]);
+const APPROVAL_WAIT_METHODS = new Set([
+  "public/terminalExecute",
+  "public/terminalStart",
+  "public/sftp/writeFile",
   "public/sftp/mkdir",
   "public/sftp/delete",
   "public/sftp/rename",
@@ -48,15 +58,28 @@ function createRpcTimeoutError(method, timeoutMs) {
   return error;
 }
 
-function resolvePublicRpcTimeoutMs(method, bridgeCommandTimeoutMs) {
-  if (!LONG_RUNNING_METHODS.has(method)) {
-    return DEFAULT_RPC_TIMEOUT_MS;
-  }
+function resolvePublicRpcTimeoutMs(method, bridgeCommandTimeoutMs, bridgePermissionMode, bridgeApprovalTimeoutMs) {
+  const operationTimeoutMs = LONG_RUNNING_METHODS.has(method)
+    ? (Number.isFinite(bridgeCommandTimeoutMs) && bridgeCommandTimeoutMs > 0
+      ? bridgeCommandTimeoutMs
+      : DEFAULT_OPERATION_TIMEOUT_MS)
+    : 0;
+  const approvalTimeoutMs = (bridgePermissionMode === "confirm" && APPROVAL_WAIT_METHODS.has(method))
+    ? (Number.isFinite(bridgeApprovalTimeoutMs) && bridgeApprovalTimeoutMs > 0
+      ? bridgeApprovalTimeoutMs
+      : DEFAULT_APPROVAL_TIMEOUT_MS)
+    : 0;
 
-  const operationTimeoutMs = Number.isFinite(bridgeCommandTimeoutMs) && bridgeCommandTimeoutMs > 0
-    ? bridgeCommandTimeoutMs
-    : DEFAULT_OPERATION_TIMEOUT_MS;
-  return Math.max(DEFAULT_RPC_TIMEOUT_MS, operationTimeoutMs + RPC_TIMEOUT_BUFFER_MS);
+  if (operationTimeoutMs > 0 && approvalTimeoutMs > 0) {
+    return Math.max(DEFAULT_RPC_TIMEOUT_MS, approvalTimeoutMs + operationTimeoutMs + RPC_TIMEOUT_BUFFER_MS);
+  }
+  if (operationTimeoutMs > 0) {
+    return Math.max(DEFAULT_RPC_TIMEOUT_MS, operationTimeoutMs + RPC_TIMEOUT_BUFFER_MS);
+  }
+  if (approvalTimeoutMs > 0) {
+    return Math.max(DEFAULT_RPC_TIMEOUT_MS, approvalTimeoutMs + RPC_TIMEOUT_BUFFER_MS);
+  }
+  return DEFAULT_RPC_TIMEOUT_MS;
 }
 
 function readDiscovery({ discoveryPath = getPublicMcpDiscoveryFilePath(), fsModule = fs } = {}) {
@@ -103,6 +126,8 @@ async function connectPublicBridge(discovery, options = {}) {
   let buffer = "";
   let nextRpcId = 1;
   let bridgeCommandTimeoutMs = null;
+  let bridgePermissionMode = null;
+  let bridgeApprovalTimeoutMs = null;
   const pending = new Map();
 
   function settle(id, resolve, reject, payload) {
@@ -165,7 +190,7 @@ async function connectPublicBridge(discovery, options = {}) {
     }
 
     const id = nextRpcId++;
-    const timeoutMs = resolvePublicRpcTimeoutMs(method, bridgeCommandTimeoutMs);
+    const timeoutMs = resolvePublicRpcTimeoutMs(method, bridgeCommandTimeoutMs, bridgePermissionMode, bridgeApprovalTimeoutMs);
     return await new Promise((resolve, reject) => {
       const timeoutId = setTimeoutImpl(() => {
         pending.delete(id);
@@ -186,6 +211,12 @@ async function connectPublicBridge(discovery, options = {}) {
     const statusResult = await call("public/getStatus", {});
     if (Number.isFinite(statusResult?.commandTimeoutMs) && statusResult.commandTimeoutMs > 0) {
       bridgeCommandTimeoutMs = statusResult.commandTimeoutMs;
+    }
+    if (typeof statusResult?.permissionMode === "string") {
+      bridgePermissionMode = statusResult.permissionMode;
+    }
+    if (Number.isFinite(statusResult?.approvalTimeoutMs) && statusResult.approvalTimeoutMs > 0) {
+      bridgeApprovalTimeoutMs = statusResult.approvalTimeoutMs;
     }
   } catch {
     // Keep the conservative long-operation default when bridge status cannot be fetched.

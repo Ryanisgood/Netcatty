@@ -117,7 +117,7 @@ export const zhCNAiMessages: Messages = {
   'ai.publicMcp.idleTimeout.description': '临时开启模式下，超过这个时间没有 MCP 操作就会自动关闭。需要继续使用时，手动重新打开同一个开关。',
   'ai.publicMcp.idleTimeout.minutes': '分钟',
   'ai.publicMcp.security': '安全',
-  'ai.publicMcp.security.description': '仅监听 `127.0.0.1`，只暴露实时 SSH PTY 会话，并在禁用时移除 discovery 文件。',
+  'ai.publicMcp.security.description': '仅监听 `127.0.0.1`，只暴露实时 SSH PTY 会话，写操作遵循 AI 权限模式，并在禁用时移除 discovery 文件。',
   'ai.publicMcp.discovery': 'Discovery 文件',
   'ai.publicMcp.launcher': 'Launcher',
   'ai.publicMcp.unavailable': '不可用',

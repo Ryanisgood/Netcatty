@@ -20,14 +20,50 @@ function createStatusPayload(ctx) {
     enabled: Boolean(ctx.getEnabled?.()),
     available: Boolean(ctx.getEnabled?.()),
     commandTimeoutMs: ctx.getCommandTimeoutMs?.() ?? ctx.commandTimeoutMs,
+    permissionMode: ctx.getPermissionMode?.() || "confirm",
+    approvalTimeoutMs: ctx.getApprovalTimeoutMs?.() ?? null,
     sessionCount: hosts.length,
   };
 }
 
+const PUBLIC_WRITE_METHODS = new Set([
+  "public/terminalExecute",
+  "public/terminalStart",
+  "public/sftp/writeFile",
+  "public/sftp/mkdir",
+  "public/sftp/delete",
+  "public/sftp/rename",
+  "public/sftp/chmod",
+]);
+
 function createPublicRpcHandlers(ctx) {
   const { terminalHandlers, sftpHandlers } = ctx;
 
+  async function enforcePermissionMode(method, params) {
+    if (!PUBLIC_WRITE_METHODS.has(method)) return { ok: true };
+
+    const permissionMode = ctx.getPermissionMode?.() || "confirm";
+    if (permissionMode === "observer") {
+      return {
+        ok: false,
+        error: 'Operation denied: permission mode is "observer" (read-only). Change to "confirm" or "autonomous" in Settings -> AI -> Safety to allow this action.',
+      };
+    }
+
+    if (permissionMode === "confirm") {
+      const approved = await ctx.requestApproval?.({ method, params });
+      if (!approved) {
+        return { ok: false, error: "Operation denied by user." };
+      }
+    }
+
+    return { ok: true };
+  }
+
   async function dispatch(method, params = {}) {
+    const permission = await enforcePermissionMode(method, params);
+    if (!permission.ok) return permission;
+
     switch (method) {
       case "public/getEnvironment":
         return createEnvironmentPayload(ctx.registry);
@@ -71,4 +107,5 @@ function createPublicRpcHandlers(ctx) {
 
 module.exports = {
   createPublicRpcHandlers,
+  PUBLIC_WRITE_METHODS,
 };

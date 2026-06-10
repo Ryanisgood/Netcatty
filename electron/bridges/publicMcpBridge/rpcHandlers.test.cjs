@@ -41,6 +41,15 @@ function makeContext(overrides = {}) {
     getEnabled() {
       return true;
     },
+    getPermissionMode() {
+      return "autonomous";
+    },
+    getApprovalTimeoutMs() {
+      return 110000;
+    },
+    async requestApproval() {
+      return true;
+    },
     terminalHandlers: {
       async handleTerminalExecute(params) {
         terminalCalls.push({ method: "execute", params });
@@ -125,6 +134,8 @@ test("rpc handlers return live public environment and current bridge status", as
     enabled: true,
     available: true,
     commandTimeoutMs: 60000,
+    permissionMode: "autonomous",
+    approvalTimeoutMs: 110000,
     sessionCount: 1,
   });
 
@@ -198,6 +209,97 @@ test("rpc handlers dispatch sftp methods to sftp handlers", async () => {
     sftpCalls.map((entry) => entry.method),
     ["list", "readFile", "writeFile", "stat", "home", "mkdir", "delete", "rename", "chmod"],
   );
+});
+
+test("rpc handlers enforce observer permission mode for public write methods", async () => {
+  const { ctx, terminalCalls, sftpCalls } = makeContext({
+    getPermissionMode() {
+      return "observer";
+    },
+  });
+  const handlers = createPublicRpcHandlers(ctx);
+
+  const executeResult = await handlers.dispatch("public/terminalExecute", {
+    sessionId: "ssh-1",
+    command: "pwd",
+  });
+  const readResult = await handlers.dispatch("public/sftp/readFile", {
+    sessionId: "ssh-1",
+    path: "/etc/hosts",
+  });
+  const writeResult = await handlers.dispatch("public/sftp/writeFile", {
+    sessionId: "ssh-1",
+    path: "/tmp/demo.txt",
+    content: "hi",
+  });
+
+  assert.equal(executeResult.ok, false);
+  assert.match(executeResult.error, /observer/);
+  assert.deepEqual(readResult, { ok: true, path: "/etc/hosts", content: "hello" });
+  assert.equal(writeResult.ok, false);
+  assert.match(writeResult.error, /observer/);
+  assert.deepEqual(terminalCalls, []);
+  assert.deepEqual(
+    sftpCalls.map((entry) => entry.method),
+    ["readFile"],
+  );
+});
+
+test("rpc handlers request approval for public write methods in confirm mode", async () => {
+  const approvalRequests = [];
+  const { ctx, terminalCalls, sftpCalls } = makeContext({
+    getPermissionMode() {
+      return "confirm";
+    },
+    async requestApproval(payload) {
+      approvalRequests.push(payload);
+      return payload.method === "public/terminalExecute";
+    },
+  });
+  const handlers = createPublicRpcHandlers(ctx);
+
+  const executeResult = await handlers.dispatch("public/terminalExecute", {
+    sessionId: "ssh-1",
+    command: "pwd",
+  });
+  const writeResult = await handlers.dispatch("public/sftp/writeFile", {
+    sessionId: "ssh-1",
+    path: "/tmp/demo.txt",
+    content: "hi",
+  });
+
+  assert.deepEqual(executeResult, { ok: true, command: "pwd", sessionId: "ssh-1" });
+  assert.equal(writeResult.ok, false);
+  assert.match(writeResult.error, /denied by user/);
+  assert.deepEqual(
+    approvalRequests.map((request) => request.method),
+    ["public/terminalExecute", "public/sftp/writeFile"],
+  );
+  assert.deepEqual(terminalCalls.map((entry) => entry.method), ["execute"]);
+  assert.deepEqual(sftpCalls, []);
+});
+
+test("rpc handlers do not request approval for public write methods in autonomous mode", async () => {
+  let approvalCount = 0;
+  const { ctx, terminalCalls } = makeContext({
+    getPermissionMode() {
+      return "autonomous";
+    },
+    async requestApproval() {
+      approvalCount += 1;
+      return false;
+    },
+  });
+  const handlers = createPublicRpcHandlers(ctx);
+
+  const result = await handlers.dispatch("public/terminalExecute", {
+    sessionId: "ssh-1",
+    command: "pwd",
+  });
+
+  assert.deepEqual(result, { ok: true, command: "pwd", sessionId: "ssh-1" });
+  assert.equal(approvalCount, 0);
+  assert.deepEqual(terminalCalls.map((entry) => entry.method), ["execute"]);
 });
 
 test("rpc handlers reject unknown methods", async () => {

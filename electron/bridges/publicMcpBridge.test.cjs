@@ -517,6 +517,65 @@ test("public bridge passes shared command safety policy to terminal handlers", a
   });
 });
 
+test("public bridge passes shared permission mode and approval gate to rpc handlers", async () => {
+  let capturedRpcContext = null;
+  const approvalRequests = [];
+  const { bridge } = createBridgeHarness({
+    createPublicRpcHandlers(ctx) {
+      capturedRpcContext = ctx;
+      return {
+        async dispatch(method, params) {
+          return { ok: true, method, params };
+        },
+      };
+    },
+    mcpServerBridge: {
+      reserveSessionExecution() {
+        return { ok: true, token: "token" };
+      },
+      releaseSessionExecution() {},
+      getSessionBusyError() {
+        return null;
+      },
+      getCommandTimeoutMs() {
+        return 60000;
+      },
+      checkCommandSafety() {
+        return { blocked: false };
+      },
+      getPermissionMode() {
+        return "confirm";
+      },
+      getApprovalTimeoutMs() {
+        return 110000;
+      },
+      async requestApproval(toolName, args, chatSessionId) {
+        approvalRequests.push({ toolName, args, chatSessionId });
+        return true;
+      },
+    },
+  });
+
+  await bridge.setEnabled(true);
+
+  assert.equal(capturedRpcContext.getPermissionMode(), "confirm");
+  assert.equal(capturedRpcContext.getApprovalTimeoutMs(), 110000);
+  assert.equal(
+    await capturedRpcContext.requestApproval({
+      method: "public/terminalExecute",
+      params: { sessionId: "ssh-1", command: "pwd" },
+    }),
+    true,
+  );
+  assert.deepEqual(approvalRequests, [
+    {
+      toolName: "public/terminalExecute",
+      args: { sessionId: "ssh-1", command: "pwd" },
+      chatSessionId: undefined,
+    },
+  ]);
+});
+
 test("public bridge recovers from startup errors and rotates token on re-enable", async () => {
   const { bridge, discoveryWrites, setStatusMode } = createBridgeHarness();
 

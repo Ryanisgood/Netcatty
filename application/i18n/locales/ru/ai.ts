@@ -117,7 +117,7 @@ export const ruAiMessages: Messages = {
   'ai.publicMcp.idleTimeout.description': 'Во временном режиме Public MCP отключается после указанного числа минут без MCP-операций. Чтобы продолжить, снова включите тот же переключатель.',
   'ai.publicMcp.idleTimeout.minutes': 'мин',
   'ai.publicMcp.security': 'Безопасность',
-  'ai.publicMcp.security.description': 'Слушает только `127.0.0.1`, открывает только live SSH PTY-сессии и удаляет discovery-файл при отключении.',
+  'ai.publicMcp.security.description': 'Слушает только `127.0.0.1`, открывает только live SSH PTY-сессии, применяет режим разрешений AI для операций записи и удаляет discovery-файл при отключении.',
   'ai.publicMcp.discovery': 'Discovery',
   'ai.publicMcp.launcher': 'Launcher',
   'ai.publicMcp.unavailable': 'Недоступно',

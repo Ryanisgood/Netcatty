@@ -26,6 +26,7 @@ import {
   resolveApproval,
   type ApprovalRequest,
 } from '../../infrastructure/ai/shared/approvalGate';
+import { shouldShowStandaloneApproval } from './approvalVisibility';
 
 interface ChatMessageListProps {
   messages: ChatMessage[];
@@ -360,7 +361,7 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, isStreaming
 
         {/* Standalone MCP/SDK approval requests (not tied to SDK tool calls) */}
         {Array.from(pendingApprovals.entries())
-          .filter(([id, req]) => id.startsWith('mcp_approval_') && (!activeSessionId || req.chatSessionId === activeSessionId))
+          .filter(([id, req]) => shouldShowStandaloneApproval(id, req.chatSessionId, activeSessionId))
           .map(([id, req]) => {
             return (
               <div key={id}>

@@ -117,7 +117,7 @@ export const enAiMessages: Messages = {
   'ai.publicMcp.idleTimeout.description': 'In temporary mode, disable Public MCP after this many minutes with no MCP operations. Turn the same switch on again to resume.',
   'ai.publicMcp.idleTimeout.minutes': 'min',
   'ai.publicMcp.security': 'Security',
-  'ai.publicMcp.security.description': 'Listens on `127.0.0.1`, exposes only live SSH PTY sessions, and removes discovery when disabled.',
+  'ai.publicMcp.security.description': 'Listens on `127.0.0.1`, exposes only live SSH PTY sessions, follows AI Permission Mode for writes, and removes discovery when disabled.',
   'ai.publicMcp.discovery': 'Discovery',
   'ai.publicMcp.launcher': 'Launcher',
   'ai.publicMcp.unavailable': 'Unavailable',

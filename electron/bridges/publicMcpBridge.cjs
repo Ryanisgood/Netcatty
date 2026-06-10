@@ -141,6 +141,25 @@ function createPublicMcpBridge(overrides = {}) {
     return mcpServerBridge?.getCommandTimeoutMs?.() || commandTimeoutMs;
   }
 
+  function getPermissionMode() {
+    return mcpServerBridge?.getPermissionMode?.() || "confirm";
+  }
+
+  function getApprovalTimeoutMs() {
+    return mcpServerBridge?.getApprovalTimeoutMs?.() || null;
+  }
+
+  async function requestApproval({ method, params }) {
+    if (typeof mcpServerBridge?.requestApproval !== "function") {
+      return false;
+    }
+    return await mcpServerBridge.requestApproval(
+      method,
+      params || {},
+      undefined,
+    );
+  }
+
   function clearIdleTimer() {
     if (!idleTimer) return;
     deps.clearTimeout(idleTimer);
@@ -219,6 +238,9 @@ function createPublicMcpBridge(overrides = {}) {
       sftpHandlers,
       commandTimeoutMs,
       getCommandTimeoutMs,
+      getPermissionMode,
+      getApprovalTimeoutMs,
+      requestApproval,
       getEnabled: () => enabled,
     });
     if (!codexSetup) {

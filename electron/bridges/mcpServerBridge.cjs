@@ -360,6 +360,10 @@ function getPermissionMode() {
   return permissionMode;
 }
 
+function getApprovalTimeoutMs() {
+  return APPROVAL_TIMEOUT_MS;
+}
+
 function setChatSessionCancelled(chatSessionId, cancelled) {
   if (!chatSessionId) return;
   if (cancelled) {
@@ -1116,6 +1120,7 @@ module.exports = {
   getMaxIterations,
   setPermissionMode,
   getPermissionMode,
+  getApprovalTimeoutMs,
   setChatSessionCancelled,
   checkCommandSafety,
   updateSessionMetadata,
@@ -1135,6 +1140,7 @@ module.exports = {
   cleanup,
   shutdownHost,
   setMainWindowGetter,
+  requestApproval: requestApprovalFromRenderer,
   resolveApprovalFromRenderer,
   clearPendingApprovals,
   reserveSessionExecution,

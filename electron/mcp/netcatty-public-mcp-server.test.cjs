@@ -160,6 +160,13 @@ test("public RPC timeout uses bridge command timeout for long-running methods", 
   assert.equal(resolvePublicRpcTimeoutMs("public/sftp/readFile", 1000), 30000);
 });
 
+test("public RPC timeout includes approval window for confirm-mode writes", () => {
+  assert.equal(resolvePublicRpcTimeoutMs("public/terminalExecute", 120000, "confirm", 110000), 235000);
+  assert.equal(resolvePublicRpcTimeoutMs("public/sftp/writeFile", 120000, "confirm", 110000), 235000);
+  assert.equal(resolvePublicRpcTimeoutMs("public/sftp/readFile", 120000, "confirm", 110000), 125000);
+  assert.equal(resolvePublicRpcTimeoutMs("public/terminalExecute", 120000, "autonomous", 110000), 125000);
+});
+
 test("public RPC timeout error says client timeout does not cancel bridge operation", () => {
   const error = createRpcTimeoutError("public/sftp/writeFile", 125000);
 
@@ -178,7 +185,7 @@ test("connectPublicBridge derives long RPC timeout from bridge status commandTim
       return;
     }
     if (message.method === "public/getStatus") {
-      respond({ result: { ok: true, commandTimeoutMs: 120000 } });
+      respond({ result: { ok: true, commandTimeoutMs: 120000, permissionMode: "confirm", approvalTimeoutMs: 110000 } });
     }
   });
 
@@ -214,13 +221,13 @@ test("connectPublicBridge derives long RPC timeout from bridge status commandTim
   });
   await new Promise((resolve) => setImmediate(resolve));
 
-  assert.equal(scheduledTimeouts.at(-1).delay, 125000);
+  assert.equal(scheduledTimeouts.at(-1).delay, 235000);
   scheduledTimeouts.at(-1).callback();
 
   await assert.rejects(
     pendingCall,
     (error) => error.code === "PUBLIC_MCP_RPC_TIMEOUT" &&
-      /after 125000ms/.test(error.message) &&
+      /after 235000ms/.test(error.message) &&
       /may still complete/i.test(error.message),
   );
 
