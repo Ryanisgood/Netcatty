@@ -45,9 +45,10 @@ import { convertFilesToUploads } from './useFileUpload';
 import { removeProviderReferences } from './aiProviderCleanup';
 import {
   normalizePublicMcpMode,
+  normalizePublicMcpIdleTimeoutMinutes,
   readPublicMcpMode,
-  readPublicMcpStartupEnabled,
   readPublicMcpStoredEnabled,
+  syncPublicMcpConfig,
   type PublicMcpMode,
 } from './usePublicMcpToggleState';
 
@@ -73,18 +74,6 @@ import {
   type PanelViewByScope,
 } from './aiStateSnapshots';
 import { AI_STATE_CHANGED_EVENT, emitAIStateChanged } from './aiStateEvents';
-
-const DEFAULT_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES = 10;
-const MIN_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES = 1;
-const MAX_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES = 24 * 60;
-
-function normalizePublicMcpIdleTimeoutMinutes(value: number | null): number {
-  if (!Number.isFinite(value)) return DEFAULT_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES;
-  return Math.min(
-    MAX_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES,
-    Math.max(MIN_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES, Math.round(value ?? DEFAULT_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES)),
-  );
-}
 
 export function useAIState() {
   // ── Provider Config ──
@@ -591,24 +580,7 @@ export function useAIState() {
         ? 'skills'
         : 'mcp';
     bridge?.aiMcpSetToolIntegrationMode?.(initialToolMode);
-    const initialPublicMcpEnabled = readPublicMcpStoredEnabled();
-    const initialPublicMcpMode = readPublicMcpMode();
-    const initialPublicMcpStartupEnabled = readPublicMcpStartupEnabled();
-    const initialPublicMcpIdleTimeoutMinutes = normalizePublicMcpIdleTimeoutMinutes(
-      localStorageAdapter.readNumber(STORAGE_KEY_AI_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES),
-    );
-    bridge?.publicMcpSetConfig?.({
-      mode: initialPublicMcpMode,
-      idleTimeoutMinutes: initialPublicMcpIdleTimeoutMinutes,
-    });
-    if (initialPublicMcpMode === 'temporary' && initialPublicMcpEnabled) {
-      setPublicMcpEnabledRaw(false);
-      localStorageAdapter.writeBoolean(STORAGE_KEY_AI_PUBLIC_MCP_ENABLED, false);
-      emitAIStateChanged(STORAGE_KEY_AI_PUBLIC_MCP_ENABLED);
-      bridge?.publicMcpSetEnabled?.(false);
-      return;
-    }
-    bridge?.publicMcpSetEnabled?.(initialPublicMcpStartupEnabled);
+    syncPublicMcpConfig(bridge);
   }, []);
 
   // ── Session CRUD ──

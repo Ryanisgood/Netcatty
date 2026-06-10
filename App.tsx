@@ -9,7 +9,7 @@ import { useUpdateCheck } from './application/state/useUpdateCheck';
 import { useVaultState } from './application/state/useVaultState';
 import { useWindowControls } from './application/state/useWindowControls';
 import { useEditorTabs } from './application/state/editorTabStore';
-import { readPublicMcpStartupEnabled, usePublicMcpToggleState } from './application/state/usePublicMcpToggleState';
+import { syncPublicMcpStartupState, usePublicMcpToggleState } from './application/state/usePublicMcpToggleState';
 import {
   clearReferenceKeyPassphrases,
   clearKeyPassphrasesByIds,
@@ -144,7 +144,7 @@ function App({ settings }: { settings: SettingsState }) {
   } = settings;
 
   useEffect(() => {
-    void netcattyBridge.get()?.publicMcpSetEnabled?.(readPublicMcpStartupEnabled());
+    syncPublicMcpStartupState(netcattyBridge.get());
   }, []);
 
   const discoveredShells = useDiscoveredShells();
