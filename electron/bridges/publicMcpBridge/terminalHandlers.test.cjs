@@ -157,6 +157,44 @@ test("terminalExecute returns busy error when shared lock is already held", asyn
   assert.match(result.error, /busy/i);
 });
 
+test("terminalExecute blocks commands rejected by the shared safety policy", async () => {
+  const { ctx, execCalls, activeLocks } = makeContext({
+    checkCommandSafety(command) {
+      return command.includes("rm -rf")
+        ? { blocked: true, matchedPattern: "rm\\s+-rf" }
+        : { blocked: false };
+    },
+  });
+  const handlers = createPublicTerminalHandlers(ctx);
+
+  const result = await handlers.handleTerminalExecute({ sessionId: "ssh-1", command: "rm -rf /" });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /blocked by safety policy/i);
+  assert.match(result.error, /rm\\s\+-rf/);
+  assert.equal(execCalls.length, 0);
+  assert.equal(activeLocks.has("ssh-1"), false);
+});
+
+test("terminalStart blocks commands rejected by the shared safety policy", async () => {
+  const { ctx, jobCalls, activeLocks } = makeContext({
+    checkCommandSafety(command) {
+      return command.includes("shutdown")
+        ? { blocked: true, matchedPattern: "^shutdown\\b" }
+        : { blocked: false };
+    },
+  });
+  const handlers = createPublicTerminalHandlers(ctx);
+
+  const result = await handlers.handleTerminalStart({ sessionId: "ssh-1", command: "shutdown now" });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /blocked by safety policy/i);
+  assert.match(result.error, /\^shutdown\\b/);
+  assert.equal(jobCalls.length, 0);
+  assert.equal(activeLocks.has("ssh-1"), false);
+});
+
 test("terminalStart reserves lock, terminalPoll returns serialized state, and terminalStop cancels job", async () => {
   const { ctx, jobCalls, activeLocks, resolveJobResult } = makeContext();
   const handlers = createPublicTerminalHandlers(ctx);

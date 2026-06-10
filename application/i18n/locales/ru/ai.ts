@@ -107,7 +107,7 @@ export const ruAiMessages: Messages = {
   'ai.publicMcp.status.codexNotFound': 'Codex не найден',
   'ai.publicMcp.status.claudeNotFound': 'Claude Code не найден',
   'ai.publicMcp.status.conflict': 'Конфликт',
-  'ai.publicMcp.description': 'Открывает только текущие live SSH PTY-сессии стандартным MCP-клиентам через localhost. Токен аутентификации обновляется при каждом запуске Netcatty.',
+  'ai.publicMcp.description': 'Позволяет стандартным MCP-клиентам, таким как Codex и Claude Code, подключаться к Netcatty и работать с уже открытыми SSH-терминалами. Открываются только live SSH PTY-сессии; неподключённые хосты из Vault не доступны.',
   'ai.publicMcp.sessionsExposed': 'Открыто сессий: {count}',
   'ai.publicMcp.security': 'Безопасность',
   'ai.publicMcp.security.description': 'Слушает только `127.0.0.1`, открывает только live SSH PTY-сессии и удаляет discovery-файл при отключении.',

@@ -107,7 +107,7 @@ export const enAiMessages: Messages = {
   'ai.publicMcp.status.codexNotFound': 'Codex not found',
   'ai.publicMcp.status.claudeNotFound': 'Claude Code not found',
   'ai.publicMcp.status.conflict': 'Conflict',
-  'ai.publicMcp.description': 'Expose only currently open live SSH PTY sessions to standard MCP clients over localhost. Token auth rotates each Netcatty launch.',
+  'ai.publicMcp.description': 'Let standard MCP clients such as Codex and Claude Code connect to Netcatty and operate the SSH terminal sessions you already have open. Only live SSH PTY sessions are exposed; disconnected Vault hosts are not.',
   'ai.publicMcp.sessionsExposed': 'Sessions exposed: {count}',
   'ai.publicMcp.security': 'Security',
   'ai.publicMcp.security.description': 'Listens on `127.0.0.1`, exposes only live SSH PTY sessions, and removes discovery when disabled.',

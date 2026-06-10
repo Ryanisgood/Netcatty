@@ -17,6 +17,7 @@ function createPublicTerminalHandlers(ctx) {
     reserveSessionExecution,
     releaseSessionExecution,
     getSessionBusyError,
+    checkCommandSafety,
     commandTimeoutMs,
     getCommandTimeoutMs,
     crypto,
@@ -74,9 +75,23 @@ function createPublicTerminalHandlers(ctx) {
     return Math.max(1, Number(getCommandTimeoutMs?.()) || Number(commandTimeoutMs) || 60000);
   }
 
+  function checkPublicCommandSafety(command) {
+    const safety = checkCommandSafety?.(command);
+    if (safety?.blocked) {
+      return {
+        ok: false,
+        error: `Command blocked by safety policy. Pattern: ${safety.matchedPattern}`,
+      };
+    }
+    return { ok: true };
+  }
+
   async function handleTerminalExecute({ sessionId, command }) {
     const validated = registry.validatePublicSession(sessionId);
     if (!validated.ok) return validated;
+
+    const safety = checkPublicCommandSafety(command);
+    if (!safety.ok) return safety;
 
     const busy = getSessionBusyError(sessionId);
     if (busy) return busy;
@@ -106,6 +121,9 @@ function createPublicTerminalHandlers(ctx) {
   async function handleTerminalStart({ sessionId, command }) {
     const validated = registry.validatePublicSession(sessionId);
     if (!validated.ok) return validated;
+
+    const safety = checkPublicCommandSafety(command);
+    if (!safety.ok) return safety;
 
     const busy = getSessionBusyError(sessionId);
     if (busy) return busy;

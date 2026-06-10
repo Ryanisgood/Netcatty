@@ -17,6 +17,7 @@ const { execViaPty, startPtyJob, execViaChannel, execViaRawPty } = require("./ai
 const { safeSend } = require("./ipcUtils.cjs");
 const { getCliDiscoveryFilePath } = require("../cli/discoveryPath.cjs");
 const sftpBridge = require("./sftpBridge.cjs");
+const DEFAULT_COMMAND_BLOCKLIST = require("../../lib/commandBlocklist.cjs");
 
 const DEBUG_MCP = process.env.NETCATTY_MCP_DEBUG === "1";
 
@@ -42,9 +43,15 @@ const scopedMetadata = new Map();
 const scopedAttachments = new Map(); // chatSessionId -> Map<filePath, attachment>
 
 // Command safety checking (reuse from aiBridge)
-let commandBlocklist = [];
+let commandBlocklist = [...DEFAULT_COMMAND_BLOCKLIST];
 // Cached compiled RegExp objects for commandBlocklist (rebuilt when blocklist changes)
-let compiledBlocklist = [];
+let compiledBlocklist = commandBlocklist.map((pattern) => {
+  try {
+    return new RegExp(pattern, "i");
+  } catch {
+    return null;
+  }
+});
 
 // Command timeout in milliseconds (default 60s, synced from user settings)
 let commandTimeoutMs = 60000;

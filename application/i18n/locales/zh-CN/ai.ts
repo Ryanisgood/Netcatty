@@ -107,7 +107,7 @@ export const zhCNAiMessages: Messages = {
   'ai.publicMcp.status.codexNotFound': '未找到 Codex',
   'ai.publicMcp.status.claudeNotFound': '未找到 Claude Code',
   'ai.publicMcp.status.conflict': '配置冲突',
-  'ai.publicMcp.description': '通过 localhost 将当前已打开的实时 SSH PTY 会话暴露给标准 MCP 客户端。Token 鉴权会在每次 Netcatty 启动时重新生成。',
+  'ai.publicMcp.description': '让 Codex、Claude Code 等标准 MCP 客户端连接到 Netcatty，并操作你当前已经打开的 SSH 终端会话。它只暴露实时 SSH PTY 会话，不会暴露 Vault 里未连接的主机。',
   'ai.publicMcp.sessionsExposed': '已暴露会话数：{count}',
   'ai.publicMcp.security': '安全',
   'ai.publicMcp.security.description': '仅监听 `127.0.0.1`，只暴露实时 SSH PTY 会话，并在禁用时移除 discovery 文件。',

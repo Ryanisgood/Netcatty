@@ -127,6 +127,7 @@ function createPublicMcpBridge(overrides = {}) {
       reserveSessionExecution: (...args) => mcpServerBridge?.reserveSessionExecution?.(...args),
       releaseSessionExecution: (...args) => mcpServerBridge?.releaseSessionExecution?.(...args),
       getSessionBusyError: (...args) => mcpServerBridge?.getSessionBusyError?.(...args),
+      checkCommandSafety: (...args) => mcpServerBridge?.checkCommandSafety?.(...args),
       commandTimeoutMs,
       getCommandTimeoutMs,
       crypto: deps.crypto,

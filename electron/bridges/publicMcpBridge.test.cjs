@@ -268,23 +268,27 @@ function createBridgeHarness(overrides = {}) {
     },
     ...overrides,
   });
+  const mcpServerBridge = overrides.mcpServerBridge || {
+    reserveSessionExecution() {
+      return { ok: true, token: "token" };
+    },
+    releaseSessionExecution() {},
+    getSessionBusyError() {
+      return null;
+    },
+    getCommandTimeoutMs() {
+      return 60000;
+    },
+    checkCommandSafety() {
+      return { blocked: false };
+    },
+  };
 
   bridge.init({
     sessions,
     electronModule: {},
     sftpBridge: {},
-    mcpServerBridge: {
-      reserveSessionExecution() {
-        return { ok: true, token: "token" };
-      },
-      releaseSessionExecution() {},
-      getSessionBusyError() {
-        return null;
-      },
-      getCommandTimeoutMs() {
-        return 60000;
-      },
-    },
+    mcpServerBridge,
     discoveryFilePath: "/tmp/netcatty-public/discovery.json",
   });
 
@@ -359,6 +363,55 @@ test("public bridge setEnabled(false) stops server, removes discovery, and is id
   assert.equal(terminalCleanupCalls.length, 1);
   assert.equal(sftpCleanupCalls.length, 1);
   assert.equal(second.state, "disabled");
+});
+
+test("public bridge passes shared command safety policy to terminal handlers", async () => {
+  let capturedCheckCommandSafety = null;
+  const { bridge } = createBridgeHarness({
+    createPublicTerminalHandlers(ctx) {
+      capturedCheckCommandSafety = ctx.checkCommandSafety;
+      return {
+        async handleTerminalExecute() {
+          return { ok: true };
+        },
+        async handleTerminalStart() {
+          return { ok: true, jobId: "job-1" };
+        },
+        handleTerminalPoll() {
+          return { ok: true, jobId: "job-1" };
+        },
+        handleTerminalStop() {
+          return { ok: true, jobId: "job-1" };
+        },
+        async cleanup() {},
+      };
+    },
+    mcpServerBridge: {
+      reserveSessionExecution() {
+        return { ok: true, token: "token" };
+      },
+      releaseSessionExecution() {},
+      getSessionBusyError() {
+        return null;
+      },
+      getCommandTimeoutMs() {
+        return 60000;
+      },
+      checkCommandSafety(command) {
+        return command === "eval echo test"
+          ? { blocked: true, matchedPattern: "\\beval\\b" }
+          : { blocked: false };
+      },
+    },
+  });
+
+  await bridge.setEnabled(true);
+
+  assert.equal(typeof capturedCheckCommandSafety, "function");
+  assert.deepEqual(capturedCheckCommandSafety("eval echo test"), {
+    blocked: true,
+    matchedPattern: "\\beval\\b",
+  });
 });
 
 test("public bridge recovers from startup errors and rotates token on re-enable", async () => {
