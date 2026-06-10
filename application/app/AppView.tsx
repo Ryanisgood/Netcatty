@@ -43,7 +43,7 @@ export function AppView({ ctx }: { ctx: AppViewContext }) {
     handleRequestCloseEditorTabRef, handleSessionStatusChange, handleSyncNowManual, handleTerminalDataCapture, handleToggleTheme, handleUpdateHostFromTerminal,
     hostById, hosts, hotkeyScheme, identities, importOrReuseKey, isBroadcastEnabled, isCreateWorkspaceOpen, isMacClient, isQuickSwitcherOpen,
     keyBindings, keyboardInteractiveQueue, keys, logViews, managedSources, navigateToSection, openLogView, orderedTabsWithEditors, orphanSessions,
-    passphraseQueue, protocolSelectHost, proxyProfiles, quickResults, quickSearch, reorderTabs, reorderWorkspaceSessions, resetSessionRename,
+    passphraseQueue, protocolSelectHost, proxyProfiles, publicMcpToggle, quickResults, quickSearch, reorderTabs, reorderWorkspaceSessions, resetSessionRename,
     resetWorkspaceRename, resolveEmptyVaultConflict, resolvedTheme, runSnippet, sessionLogsDir, sessionLogsEnabled, sessionLogsFormat, sessionLogsTimestampsEnabled, sessionRenameTarget, sshDebugLogsEnabled,
     sessionRenameValue, sessions, setActiveTabId, setAddToWorkspaceDialog, setDraggingSessionId, setEditorWordWrap, setIsCreateWorkspaceOpen, setIsQuickSwitcherOpen,
     setNavigateToSection, setProtocolSelectHost, setQuickSearch, setSessionRenameValue, setTerminalFontFamilyId, setTerminalFontSize, setTerminalThemeId,
@@ -136,6 +136,8 @@ export function AppView({ ctx }: { ctx: AppViewContext }) {
         onOpenQuickSwitcher={handleOpenQuickSwitcher}
         onToggleTheme={handleToggleTheme}
         onOpenSettings={handleOpenSettings}
+        publicMcpEnabled={publicMcpToggle.enabled}
+        onTogglePublicMcp={publicMcpToggle.setEnabled}
         windowOpacity={settings.windowOpacity}
         setWindowOpacity={settings.setWindowOpacity}
         onSyncNow={handleSyncNowManual}

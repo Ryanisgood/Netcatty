@@ -51,10 +51,17 @@ type PublicMcpStatusView = {
 };
 
 function getBridgeStatusView(status: PublicMcpStatus | null, enabled: boolean): PublicMcpStatusView {
+  if (!enabled) {
+    return {
+      labelKey: "ai.publicMcp.status.disabled",
+      className: "text-muted-foreground",
+    };
+  }
+
   if (!status || !status.ok) {
     return {
-      labelKey: enabled ? "ai.publicMcp.status.unavailable" : "ai.publicMcp.status.disabled",
-      className: enabled ? "text-amber-500" : "text-muted-foreground",
+      labelKey: "ai.publicMcp.status.unavailable",
+      className: "text-amber-500",
     };
   }
 
@@ -159,6 +166,14 @@ export function buildClaudeSnippet(launcherPath: string) {
   }, null, 2);
 }
 
+export function shouldPollPublicMcpStatus(enabled: boolean) {
+  return enabled;
+}
+
+export function getVisiblePublicMcpSessionCount(status: PublicMcpStatus | null, enabled: boolean) {
+  return enabled ? status?.exposedSessionCount ?? 0 : 0;
+}
+
 export const PublicMcpCard: React.FC<{
   enabled: boolean;
   setEnabled: (enabled: boolean) => void;
@@ -230,21 +245,35 @@ export const PublicMcpCard: React.FC<{
     }
   }, [bridgeUnavailableMessage, enabled]);
 
+  const refreshBridgeStatus = useCallback(async () => {
+    const bridge = getBridge();
+    if (!bridge?.publicMcpGetStatus) return;
+    try {
+      const nextStatus = await bridge.publicMcpGetStatus();
+      setStatus(nextStatus);
+    } catch {
+      // Keep the last visible status during transient IPC failures.
+    }
+  }, []);
+
   useEffect(() => {
     void refreshStatus();
   }, [refreshStatus]);
 
   useEffect(() => {
-    if (!enabled) return;
-    if (status?.state !== "starting") return;
+    if (!shouldPollPublicMcpStatus(enabled)) return;
     const intervalId = window.setInterval(() => {
-      void refreshStatus({ quiet: true });
+      void refreshBridgeStatus();
     }, 3000);
     return () => window.clearInterval(intervalId);
-  }, [enabled, refreshStatus, status?.state]);
+  }, [enabled, refreshBridgeStatus]);
 
   const bridgeStatusView = useMemo(
     () => getBridgeStatusView(status, enabled),
+    [enabled, status],
+  );
+  const exposedSessionCount = useMemo(
+    () => getVisiblePublicMcpSessionCount(status, enabled),
     [enabled, status],
   );
   const codexStatusView = useMemo(
@@ -370,7 +399,7 @@ export const PublicMcpCard: React.FC<{
         <div className="min-w-0">
           <div className="text-sm font-medium">Public MCP</div>
           <div className="text-xs text-muted-foreground">
-            {t("ai.publicMcp.sessionsExposed", { count: status?.exposedSessionCount ?? 0 })}
+            {t("ai.publicMcp.sessionsExposed", { count: exposedSessionCount })}
           </div>
         </div>
         <Toggle checked={enabled} onChange={(nextEnabled) => void handleToggle(nextEnabled)} />

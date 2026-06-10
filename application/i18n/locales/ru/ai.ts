@@ -280,6 +280,8 @@ export const ruAiMessages: Messages = {
   'topTabs.openQuickSwitcher': 'Открыть быстрый переключатель',
   'topTabs.moreTabs': 'Больше вкладок',
   'topTabs.aiAssistant': 'AI-помощник',
+  'topTabs.publicMcp.enable': 'Включить Public MCP',
+  'topTabs.publicMcp.disable': 'Отключить Public MCP',
   'topTabs.windowOpacity': 'Прозрачность окна',
   'topTabs.toggleTheme': 'Переключить тему',
   'topTabs.openSettings': 'Открыть настройки',

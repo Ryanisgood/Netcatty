@@ -1,4 +1,4 @@
-import { Folder, FolderLock, Menu, Moon, MoreHorizontal, Plus, Settings, Sparkles, Sun } from 'lucide-react';
+import { Folder, FolderLock, Menu, Moon, MoreHorizontal, Plus, Radio, Settings, Sparkles, Sun } from 'lucide-react';
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { fromEditorTabId, isEditorTabId, useActiveTabId } from '../application/state/activeTabStore';
 import type { EditorTab } from '../application/state/editorTabStore';
@@ -58,6 +58,8 @@ interface TopTabsProps {
   onOpenQuickSwitcher: () => void;
   onToggleTheme: () => void;
   onOpenSettings: () => void;
+  publicMcpEnabled: boolean;
+  onTogglePublicMcp: (enabled: boolean) => void;
   windowOpacity: number;
   setWindowOpacity: (opacity: number) => void;
   onSyncNow?: () => Promise<void>;
@@ -93,6 +95,8 @@ const TopTabsInner: React.FC<TopTabsProps> = ({
   onOpenQuickSwitcher,
   onToggleTheme,
   onOpenSettings,
+  publicMcpEnabled,
+  onTogglePublicMcp,
   windowOpacity,
   setWindowOpacity,
   onSyncNow,
@@ -740,6 +744,25 @@ const TopTabsInner: React.FC<TopTabsProps> = ({
             </TooltipTrigger>
             <TooltipContent>{t('topTabs.aiAssistant')}</TooltipContent>
           </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "h-7 w-7 shrink-0 app-no-drag",
+                  publicMcpEnabled && "text-emerald-500",
+                )}
+                style={publicMcpEnabled ? undefined : { color: 'var(--top-tabs-muted, hsl(var(--muted-foreground)))' }}
+                onClick={() => onTogglePublicMcp(!publicMcpEnabled)}
+              >
+                <Radio size={16} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {t(publicMcpEnabled ? 'topTabs.publicMcp.disable' : 'topTabs.publicMcp.enable')}
+            </TooltipContent>
+          </Tooltip>
           <WindowOpacityButton
             windowOpacity={windowOpacity}
             setWindowOpacity={setWindowOpacity}
@@ -805,6 +828,8 @@ const topTabsAreEqual = (prev: TopTabsProps, next: TopTabsProps): boolean => {
     prev.onCopySession === next.onCopySession &&
     prev.onCopySessionToNewWindow === next.onCopySessionToNewWindow &&
     prev.onOpenSettings === next.onOpenSettings &&
+    prev.publicMcpEnabled === next.publicMcpEnabled &&
+    prev.onTogglePublicMcp === next.onTogglePublicMcp &&
     prev.windowOpacity === next.windowOpacity &&
     prev.setWindowOpacity === next.setWindowOpacity &&
     prev.onSyncNow === next.onSyncNow &&
