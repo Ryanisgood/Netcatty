@@ -1,6 +1,12 @@
 
 declare global {
   type PublicMcpBridgeState = 'disabled' | 'starting' | 'running' | 'error' | 'unavailable';
+  type PublicMcpMode = 'temporary' | 'persistent';
+
+  interface PublicMcpConfig {
+    mode?: PublicMcpMode;
+    idleTimeoutMinutes?: number;
+  }
 
   interface PublicMcpStatus {
     ok: boolean;
@@ -11,6 +17,10 @@ declare global {
     discoveryPath: string | null;
     launcherPath: string | null;
     exposedSessionCount: number;
+    mode?: PublicMcpMode;
+    idleTimeoutMinutes?: number;
+    lastActivityAt?: number | null;
+    idleExpiresAt?: number | null;
     error: string | null;
   }
 
@@ -139,6 +149,7 @@ declare global {
     aiMcpSetToolIntegrationMode?(mode: 'mcp' | 'skills'): Promise<{ ok: boolean; error?: string }>;
     publicMcpGetStatus?(): Promise<PublicMcpStatus>;
     publicMcpSetEnabled?(enabled: boolean): Promise<PublicMcpStatus>;
+    publicMcpSetConfig?(config: PublicMcpConfig): Promise<PublicMcpStatus>;
     publicMcpCodexGetStatus?(): Promise<PublicMcpCodexStatus>;
     publicMcpCodexAdd?(): Promise<PublicMcpCodexStatus>;
     publicMcpClaudeGetStatus?(): Promise<PublicMcpClaudeStatus>;

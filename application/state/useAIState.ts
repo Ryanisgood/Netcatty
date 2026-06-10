@@ -18,6 +18,8 @@ import {
   STORAGE_KEY_AI_AGENT_PROVIDER_MAP,
   STORAGE_KEY_AI_WEB_SEARCH,
   STORAGE_KEY_AI_PUBLIC_MCP_ENABLED,
+  STORAGE_KEY_AI_PUBLIC_MCP_MODE,
+  STORAGE_KEY_AI_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES,
 } from '../../infrastructure/config/storageKeys';
 import type {
   AIDraft,
@@ -41,6 +43,13 @@ import {
 } from './aiDraftState';
 import { convertFilesToUploads } from './useFileUpload';
 import { removeProviderReferences } from './aiProviderCleanup';
+import {
+  normalizePublicMcpMode,
+  readPublicMcpMode,
+  readPublicMcpStartupEnabled,
+  readPublicMcpStoredEnabled,
+  type PublicMcpMode,
+} from './usePublicMcpToggleState';
 
 import {
   AI_STATE_CHANGED_DRAFTS_BY_SCOPE,
@@ -64,6 +73,19 @@ import {
   type PanelViewByScope,
 } from './aiStateSnapshots';
 import { AI_STATE_CHANGED_EVENT, emitAIStateChanged } from './aiStateEvents';
+
+const DEFAULT_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES = 10;
+const MIN_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES = 1;
+const MAX_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES = 24 * 60;
+
+function normalizePublicMcpIdleTimeoutMinutes(value: number | null): number {
+  if (!Number.isFinite(value)) return DEFAULT_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES;
+  return Math.min(
+    MAX_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES,
+    Math.max(MIN_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES, Math.round(value ?? DEFAULT_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES)),
+  );
+}
+
 export function useAIState() {
   // ── Provider Config ──
   const [providers, setProvidersRaw] = useState<ProviderConfig[]>(() =>
@@ -159,7 +181,13 @@ export function useAIState() {
     localStorageAdapter.read<WebSearchConfig>(STORAGE_KEY_AI_WEB_SEARCH) ?? null
   );
   const [publicMcpEnabled, setPublicMcpEnabledRaw] = useState<boolean>(() =>
-    localStorageAdapter.readBoolean(STORAGE_KEY_AI_PUBLIC_MCP_ENABLED) ?? false
+    readPublicMcpStoredEnabled()
+  );
+  const [publicMcpMode, setPublicMcpModeRaw] = useState<PublicMcpMode>(() =>
+    readPublicMcpMode()
+  );
+  const [publicMcpIdleTimeoutMinutes, setPublicMcpIdleTimeoutMinutesRaw] = useState<number>(() =>
+    normalizePublicMcpIdleTimeoutMinutes(localStorageAdapter.readNumber(STORAGE_KEY_AI_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES))
   );
 
   useEffect(() => {
@@ -273,6 +301,22 @@ export function useAIState() {
     emitAIStateChanged(STORAGE_KEY_AI_PUBLIC_MCP_ENABLED);
     const bridge = getAIBridge();
     bridge?.publicMcpSetEnabled?.(enabled);
+  }, []);
+
+  const setPublicMcpMode = useCallback((mode: PublicMcpMode) => {
+    const nextMode = normalizePublicMcpMode(mode);
+    setPublicMcpModeRaw(nextMode);
+    localStorageAdapter.writeString(STORAGE_KEY_AI_PUBLIC_MCP_MODE, nextMode);
+    emitAIStateChanged(STORAGE_KEY_AI_PUBLIC_MCP_MODE);
+    getAIBridge()?.publicMcpSetConfig?.({ mode: nextMode });
+  }, []);
+
+  const setPublicMcpIdleTimeoutMinutes = useCallback((minutes: number) => {
+    const nextMinutes = normalizePublicMcpIdleTimeoutMinutes(minutes);
+    setPublicMcpIdleTimeoutMinutesRaw(nextMinutes);
+    localStorageAdapter.writeNumber(STORAGE_KEY_AI_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES, nextMinutes);
+    emitAIStateChanged(STORAGE_KEY_AI_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES);
+    getAIBridge()?.publicMcpSetConfig?.({ idleTimeoutMinutes: nextMinutes });
   }, []);
 
   // ── Persist helpers ──
@@ -472,6 +516,20 @@ export function useAIState() {
             getAIBridge()?.publicMcpSetEnabled?.(enabled);
             break;
           }
+          case STORAGE_KEY_AI_PUBLIC_MCP_MODE: {
+            const mode = normalizePublicMcpMode(localStorageAdapter.readString(STORAGE_KEY_AI_PUBLIC_MCP_MODE));
+            setPublicMcpModeRaw(mode);
+            getAIBridge()?.publicMcpSetConfig?.({ mode });
+            break;
+          }
+          case STORAGE_KEY_AI_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES: {
+            const idleTimeoutMinutes = normalizePublicMcpIdleTimeoutMinutes(
+              localStorageAdapter.readNumber(STORAGE_KEY_AI_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES),
+            );
+            setPublicMcpIdleTimeoutMinutesRaw(idleTimeoutMinutes);
+            getAIBridge()?.publicMcpSetConfig?.({ idleTimeoutMinutes });
+            break;
+          }
         }
       } catch (err) {
         console.warn('[useAIState] Cross-window sync: failed to process storage event for key', e.key, err);
@@ -533,9 +591,24 @@ export function useAIState() {
         ? 'skills'
         : 'mcp';
     bridge?.aiMcpSetToolIntegrationMode?.(initialToolMode);
-    const initialPublicMcpEnabled =
-      localStorageAdapter.readBoolean(STORAGE_KEY_AI_PUBLIC_MCP_ENABLED) ?? false;
-    bridge?.publicMcpSetEnabled?.(initialPublicMcpEnabled);
+    const initialPublicMcpEnabled = readPublicMcpStoredEnabled();
+    const initialPublicMcpMode = readPublicMcpMode();
+    const initialPublicMcpStartupEnabled = readPublicMcpStartupEnabled();
+    const initialPublicMcpIdleTimeoutMinutes = normalizePublicMcpIdleTimeoutMinutes(
+      localStorageAdapter.readNumber(STORAGE_KEY_AI_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES),
+    );
+    bridge?.publicMcpSetConfig?.({
+      mode: initialPublicMcpMode,
+      idleTimeoutMinutes: initialPublicMcpIdleTimeoutMinutes,
+    });
+    if (initialPublicMcpMode === 'temporary' && initialPublicMcpEnabled) {
+      setPublicMcpEnabledRaw(false);
+      localStorageAdapter.writeBoolean(STORAGE_KEY_AI_PUBLIC_MCP_ENABLED, false);
+      emitAIStateChanged(STORAGE_KEY_AI_PUBLIC_MCP_ENABLED);
+      bridge?.publicMcpSetEnabled?.(false);
+      return;
+    }
+    bridge?.publicMcpSetEnabled?.(initialPublicMcpStartupEnabled);
   }, []);
 
   // ── Session CRUD ──
@@ -997,6 +1070,10 @@ export function useAIState() {
     setWebSearchConfig,
     publicMcpEnabled,
     setPublicMcpEnabled,
+    publicMcpMode,
+    setPublicMcpMode,
+    publicMcpIdleTimeoutMinutes,
+    setPublicMcpIdleTimeoutMinutes,
     sessions,
     activeSessionIdMap,
     draftsByScope,
@@ -1054,6 +1131,10 @@ export function useAIState() {
     setWebSearchConfig,
     publicMcpEnabled,
     setPublicMcpEnabled,
+    publicMcpMode,
+    setPublicMcpMode,
+    publicMcpIdleTimeoutMinutes,
+    setPublicMcpIdleTimeoutMinutes,
     sessions,
     activeSessionIdMap,
     draftsByScope,

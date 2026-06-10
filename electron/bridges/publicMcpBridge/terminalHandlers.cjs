@@ -1,9 +1,10 @@
 "use strict";
 
 const DEFAULT_BACKGROUND_JOB_POLL_INTERVAL_MS = 30 * 1000;
+const BACKGROUND_JOB_RETENTION_MS = 10 * 60 * 1000;
 
-function createBackgroundJobId(crypto) {
-  return `job_${Date.now().toString(36)}_${crypto.randomBytes(6).toString("hex")}`;
+function createBackgroundJobId(crypto, DateImpl = Date) {
+  return `job_${DateImpl.now().toString(36)}_${crypto.randomBytes(6).toString("hex")}`;
 }
 
 function createPublicTerminalHandlers(ctx) {
@@ -21,11 +22,49 @@ function createPublicTerminalHandlers(ctx) {
     commandTimeoutMs,
     getCommandTimeoutMs,
     crypto,
-    Date,
+    Date: DateImpl = Date,
+    setTimeout: setTimeoutFn = setTimeout,
+    clearTimeout: clearTimeoutFn = clearTimeout,
   } = ctx;
 
   const activeExecs = new Map();
   const jobs = new Map();
+  const jobRetentionTimers = new Map();
+
+  function isRetainedTerminalState(job) {
+    return job?.status !== "running" && job?.status !== "stopping";
+  }
+
+  function clearJobRetentionTimer(jobId) {
+    const timer = jobRetentionTimers.get(jobId);
+    if (!timer) return;
+    clearTimeoutFn(timer);
+    jobRetentionTimers.delete(jobId);
+  }
+
+  function pruneExpiredJobs(now = DateImpl.now()) {
+    for (const [jobId, job] of jobs) {
+      if (!isRetainedTerminalState(job)) continue;
+      const updatedAt = Number(job.updatedAt) || 0;
+      if (updatedAt > 0 && now - updatedAt > BACKGROUND_JOB_RETENTION_MS) {
+        clearJobRetentionTimer(jobId);
+        jobs.delete(jobId);
+      }
+    }
+  }
+
+  function scheduleJobRetentionPrune(job) {
+    if (!isRetainedTerminalState(job)) return;
+    clearJobRetentionTimer(job.id);
+    const updatedAt = Number(job.updatedAt) || DateImpl.now();
+    const delayMs = Math.max(1, BACKGROUND_JOB_RETENTION_MS - (DateImpl.now() - updatedAt) + 1);
+    const timer = setTimeoutFn(() => {
+      jobRetentionTimers.delete(job.id);
+      pruneExpiredJobs();
+    }, delayMs);
+    timer?.unref?.();
+    jobRetentionTimers.set(job.id, timer);
+  }
 
   function echoCommandToSession(session, sessionId, command) {
     if (!electronModule || !session?.webContentsId || !command) return;
@@ -142,8 +181,8 @@ function createPublicTerminalHandlers(ctx) {
       normalizeFinalOutput: false,
     });
 
-    const startedAt = Date.now();
-    const jobId = createBackgroundJobId(crypto);
+    const startedAt = DateImpl.now();
+    const jobId = createBackgroundJobId(crypto, DateImpl);
     const job = {
       id: jobId,
       sessionId,
@@ -165,7 +204,7 @@ function createPublicTerminalHandlers(ctx) {
     Promise.resolve(handle.resultPromise)
       .then((result) => {
         if (!jobs.has(jobId)) return;
-        job.updatedAt = Date.now();
+        job.updatedAt = DateImpl.now();
         job.stdout = String(result?.stdout || "");
         job.outputBaseOffset = Math.max(0, Number(result?.outputBaseOffset) || 0);
         job.totalOutputChars = Math.max(job.outputBaseOffset + job.stdout.length, Number(result?.totalOutputChars) || 0);
@@ -175,14 +214,16 @@ function createPublicTerminalHandlers(ctx) {
         job.status = result?.error ? "failed" : "completed";
         job.handle = null;
         releaseSessionExecution(sessionId, reservation.token);
+        scheduleJobRetentionPrune(job);
       })
       .catch((error) => {
         if (!jobs.has(jobId)) return;
-        job.updatedAt = Date.now();
+        job.updatedAt = DateImpl.now();
         job.status = "failed";
         job.error = error?.message || String(error);
         job.handle = null;
         releaseSessionExecution(sessionId, reservation.token);
+        scheduleJobRetentionPrune(job);
       });
 
     return {
@@ -197,6 +238,7 @@ function createPublicTerminalHandlers(ctx) {
   }
 
   function handleTerminalPoll({ jobId, offset = 0 }) {
+    pruneExpiredJobs();
     const job = jobs.get(jobId);
     if (!job) {
       return { ok: false, error: "Background job not found" };
@@ -205,6 +247,7 @@ function createPublicTerminalHandlers(ctx) {
   }
 
   function handleTerminalStop({ jobId }) {
+    pruneExpiredJobs();
     const job = jobs.get(jobId);
     if (!job) {
       return { ok: false, error: "Background job not found" };
@@ -217,7 +260,7 @@ function createPublicTerminalHandlers(ctx) {
       }
       job.status = "stopping";
       job.error = "Cancellation requested";
-      job.updatedAt = Date.now();
+      job.updatedAt = DateImpl.now();
     }
     return serializeJob(job, 0);
   }
@@ -234,6 +277,10 @@ function createPublicTerminalHandlers(ctx) {
       releaseSessionExecution(sessionId, entry.token);
     }
     activeExecs.clear();
+
+    for (const jobId of jobRetentionTimers.keys()) {
+      clearJobRetentionTimer(jobId);
+    }
 
     for (const [jobId, job] of jobs) {
       try {

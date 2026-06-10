@@ -5,6 +5,23 @@ const net = require("node:net");
 
 const { getPublicMcpDiscoveryFilePath } = require("../cli/publicMcpDiscoveryPath.cjs");
 
+const DEFAULT_RPC_TIMEOUT_MS = 30_000;
+const DEFAULT_OPERATION_TIMEOUT_MS = 60_000;
+const RPC_TIMEOUT_BUFFER_MS = 5_000;
+const LONG_RUNNING_METHODS = new Set([
+  "public/terminalExecute",
+  "public/terminalStart",
+  "public/sftp/list",
+  "public/sftp/readFile",
+  "public/sftp/writeFile",
+  "public/sftp/stat",
+  "public/sftp/home",
+  "public/sftp/mkdir",
+  "public/sftp/delete",
+  "public/sftp/rename",
+  "public/sftp/chmod",
+]);
+
 function getMcpSdk() {
   return {
     McpServer: require("@modelcontextprotocol/sdk/server/mcp.js").McpServer,
@@ -20,6 +37,26 @@ function createUnavailableError(message) {
   const error = new Error(message);
   error.code = "PUBLIC_MCP_UNAVAILABLE";
   return error;
+}
+
+function createRpcTimeoutError(method, timeoutMs) {
+  const error = new Error(
+    `Timed out waiting for Public MCP RPC response to "${method}" after ${timeoutMs}ms. ` +
+      "The bridge does not cancel in-flight operations on client timeout; the remote operation may still complete.",
+  );
+  error.code = "PUBLIC_MCP_RPC_TIMEOUT";
+  return error;
+}
+
+function resolvePublicRpcTimeoutMs(method, bridgeCommandTimeoutMs) {
+  if (!LONG_RUNNING_METHODS.has(method)) {
+    return DEFAULT_RPC_TIMEOUT_MS;
+  }
+
+  const operationTimeoutMs = Number.isFinite(bridgeCommandTimeoutMs) && bridgeCommandTimeoutMs > 0
+    ? bridgeCommandTimeoutMs
+    : DEFAULT_OPERATION_TIMEOUT_MS;
+  return Math.max(DEFAULT_RPC_TIMEOUT_MS, operationTimeoutMs + RPC_TIMEOUT_BUFFER_MS);
 }
 
 function readDiscovery({ discoveryPath = getPublicMcpDiscoveryFilePath(), fsModule = fs } = {}) {
@@ -50,6 +87,8 @@ function shouldRetryConnection(error) {
 
 async function connectPublicBridge(discovery, options = {}) {
   const netModule = options.netModule || net;
+  const setTimeoutImpl = options.setTimeout || setTimeout;
+  const clearTimeoutImpl = options.clearTimeout || clearTimeout;
   const socket = await new Promise((resolve, reject) => {
     const sock = netModule.createConnection(
       { host: discovery.host || "127.0.0.1", port: discovery.port },
@@ -63,11 +102,12 @@ async function connectPublicBridge(discovery, options = {}) {
 
   let buffer = "";
   let nextRpcId = 1;
+  let bridgeCommandTimeoutMs = null;
   const pending = new Map();
 
   function settle(id, resolve, reject, payload) {
     pending.delete(id);
-    clearTimeout(payload.timeoutId);
+    clearTimeoutImpl(payload.timeoutId);
     if (payload.error) {
       reject(payload.error);
       return;
@@ -125,11 +165,12 @@ async function connectPublicBridge(discovery, options = {}) {
     }
 
     const id = nextRpcId++;
+    const timeoutMs = resolvePublicRpcTimeoutMs(method, bridgeCommandTimeoutMs);
     return await new Promise((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
+      const timeoutId = setTimeoutImpl(() => {
         pending.delete(id);
-        reject(createUnavailableError(`Timed out waiting for Public MCP RPC response to "${method}".`));
-      }, 30000);
+        reject(createRpcTimeoutError(method, timeoutMs));
+      }, timeoutMs);
 
       pending.set(id, { resolve, reject, timeoutId });
       socket.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
@@ -139,6 +180,15 @@ async function connectPublicBridge(discovery, options = {}) {
   const authResult = await call("auth/verify", { token: discovery.token });
   if (!authResult?.ok) {
     throw createUnavailableError("Netcatty Public MCP token is stale. Retry after refreshing discovery.");
+  }
+
+  try {
+    const statusResult = await call("public/getStatus", {});
+    if (Number.isFinite(statusResult?.commandTimeoutMs) && statusResult.commandTimeoutMs > 0) {
+      bridgeCommandTimeoutMs = statusResult.commandTimeoutMs;
+    }
+  } catch {
+    // Keep the conservative long-operation default when bridge status cannot be fetched.
   }
 
   return {
@@ -193,6 +243,9 @@ function createPublicBridgeClientManager(options = {}) {
         return await retryClient.call(method, params);
       } catch (retryError) {
         reset();
+        if (!shouldRetryImpl(retryError)) {
+          throw retryError;
+        }
         throw createUnavailableError(retryError?.message || "Netcatty is not running or Public MCP is disabled.");
       }
     }
@@ -436,6 +489,8 @@ if (require.main === module) {
 
 module.exports = {
   createUnavailableError,
+  createRpcTimeoutError,
+  resolvePublicRpcTimeoutMs,
   readDiscovery,
   connectPublicBridge,
   createPublicBridgeClientManager,

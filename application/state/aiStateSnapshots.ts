@@ -29,7 +29,9 @@ export interface AIBridge {
   aiMcpSetCommandBlocklist?: (blocklist: string[]) => Promise<unknown> | unknown;
   aiMcpSetCommandTimeout?: (timeout: number) => Promise<unknown> | unknown;
   aiMcpSetMaxIterations?: (maxIterations: number) => Promise<unknown> | unknown;
+  publicMcpGetStatus?: () => Promise<{ ok?: boolean; enabled?: boolean }> | { ok?: boolean; enabled?: boolean };
   publicMcpSetEnabled?: (enabled: boolean) => Promise<unknown> | unknown;
+  publicMcpSetConfig?: (config: { mode?: 'temporary' | 'persistent'; idleTimeoutMinutes?: number }) => Promise<unknown> | unknown;
 }
 
 export function getAIBridge() {

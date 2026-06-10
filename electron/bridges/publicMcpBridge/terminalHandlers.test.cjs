@@ -27,6 +27,44 @@ function makeSession(overrides = {}) {
   };
 }
 
+function flushMicrotasks() {
+  return Promise.resolve();
+}
+
+function makeFakeClock(start = 1000) {
+  let now = start;
+  const timers = [];
+  const DateImpl = {
+    now() {
+      return now;
+    },
+  };
+
+  return {
+    Date: DateImpl,
+    timers,
+    advance(ms) {
+      now += ms;
+    },
+    setTimeout(fn, delay) {
+      const timer = {
+        fn,
+        delay,
+        cleared: false,
+        unrefCalled: false,
+        unref() {
+          this.unrefCalled = true;
+        },
+      };
+      timers.push(timer);
+      return timer;
+    },
+    clearTimeout(timer) {
+      if (timer) timer.cleared = true;
+    },
+  };
+}
+
 function makeContext(overrides = {}) {
   const sessions = new Map([["ssh-1", makeSession()]]);
   const registry = createPublicSessionRegistry({ sessions });
@@ -103,6 +141,8 @@ function makeContext(overrides = {}) {
     commandTimeoutMs: 60000,
     crypto: { randomBytes: () => Buffer.from("abcdef", "hex") },
     Date,
+    setTimeout,
+    clearTimeout,
     ...overrides,
   };
 
@@ -218,6 +258,96 @@ test("terminalStart reserves lock, terminalPoll returns serialized state, and te
   assert.equal(activeLocks.has("ssh-1"), true);
 
   resolveJobResult();
+  await flushMicrotasks();
+});
+
+test("terminalPoll retains recently completed jobs and prunes them after retention", async () => {
+  const clock = makeFakeClock();
+  const { ctx, activeLocks, resolveJobResult } = makeContext({
+    Date: clock.Date,
+    setTimeout: clock.setTimeout.bind(clock),
+    clearTimeout: clock.clearTimeout.bind(clock),
+  });
+  const handlers = createPublicTerminalHandlers(ctx);
+
+  const started = await handlers.handleTerminalStart({ sessionId: "ssh-1", command: "npm run build" });
+  resolveJobResult();
+  await flushMicrotasks();
+
+  const completed = handlers.handleTerminalPoll({ jobId: started.jobId, offset: 0 });
+  assert.equal(completed.ok, true);
+  assert.equal(completed.status, "completed");
+  assert.equal(completed.completed, true);
+  assert.equal(completed.output, "build ok\n");
+  assert.equal(activeLocks.has("ssh-1"), false);
+  assert.equal(clock.timers.length, 1);
+  assert.equal(clock.timers[0].unrefCalled, true);
+
+  clock.advance((10 * 60 * 1000) + 1);
+  const expired = handlers.handleTerminalPoll({ jobId: started.jobId, offset: completed.nextOffset });
+  assert.equal(expired.ok, false);
+  assert.match(expired.error, /not found/i);
+  assert.equal(clock.timers[0].cleared, true);
+});
+
+test("terminal job retention timer prunes failed jobs when it fires", async () => {
+  const clock = makeFakeClock();
+  const { ctx } = makeContext({
+    Date: clock.Date,
+    setTimeout: clock.setTimeout.bind(clock),
+    clearTimeout: clock.clearTimeout.bind(clock),
+    startPtyJob: () => ({
+      cancel() {},
+      getSnapshot() {
+        return { stdout: "building\n", outputBaseOffset: 0, totalOutputChars: 9, outputTruncated: false };
+      },
+      resultPromise: Promise.reject(new Error("build failed")),
+    }),
+  });
+  const handlers = createPublicTerminalHandlers(ctx);
+
+  const started = await handlers.handleTerminalStart({ sessionId: "ssh-1", command: "npm run build" });
+  await flushMicrotasks();
+
+  const failed = handlers.handleTerminalPoll({ jobId: started.jobId, offset: 0 });
+  assert.equal(failed.ok, true);
+  assert.equal(failed.status, "failed");
+  assert.match(failed.error, /build failed/);
+  assert.equal(clock.timers.length, 1);
+
+  clock.advance((10 * 60 * 1000) + 1);
+  clock.timers[0].fn();
+
+  const expired = handlers.handleTerminalPoll({ jobId: started.jobId, offset: 0 });
+  assert.equal(expired.ok, false);
+  assert.match(expired.error, /not found/i);
+});
+
+test("terminal job retention does not prune running jobs", async () => {
+  const clock = makeFakeClock();
+  const { ctx } = makeContext({
+    Date: clock.Date,
+    setTimeout: clock.setTimeout.bind(clock),
+    clearTimeout: clock.clearTimeout.bind(clock),
+    startPtyJob: () => ({
+      cancel() {},
+      getSnapshot() {
+        return { stdout: "still running\n", outputBaseOffset: 0, totalOutputChars: 14, outputTruncated: false };
+      },
+      resultPromise: new Promise(() => {}),
+    }),
+  });
+  const handlers = createPublicTerminalHandlers(ctx);
+
+  const started = await handlers.handleTerminalStart({ sessionId: "ssh-1", command: "tail -f app.log" });
+  clock.advance(60 * 60 * 1000);
+
+  const polled = handlers.handleTerminalPoll({ jobId: started.jobId, offset: 0 });
+  assert.equal(polled.ok, true);
+  assert.equal(polled.status, "running");
+  assert.equal(polled.completed, false);
+  assert.equal(polled.output, "still running\n");
+  assert.equal(clock.timers.length, 0);
 });
 
 test("terminal handlers read command timeout dynamically for each call", async () => {
@@ -273,4 +403,25 @@ test("terminal handler cleanup cancels running execs and jobs and releases locks
   const stopped = handlers.handleTerminalPoll({ jobId: started.jobId, offset: 0 });
   assert.equal(stopped.ok, false);
   assert.match(stopped.error, /not found/i);
+});
+
+test("terminal handler cleanup clears retention timers for completed jobs", async () => {
+  const clock = makeFakeClock();
+  const { ctx, resolveJobResult } = makeContext({
+    Date: clock.Date,
+    setTimeout: clock.setTimeout.bind(clock),
+    clearTimeout: clock.clearTimeout.bind(clock),
+  });
+  const handlers = createPublicTerminalHandlers(ctx);
+
+  await handlers.handleTerminalStart({ sessionId: "ssh-1", command: "npm run build" });
+  resolveJobResult();
+  await flushMicrotasks();
+
+  assert.equal(clock.timers.length, 1);
+  assert.equal(clock.timers[0].cleared, false);
+
+  await handlers.cleanup();
+
+  assert.equal(clock.timers[0].cleared, true);
 });

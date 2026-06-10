@@ -109,6 +109,7 @@ export interface NetcattyAiBridge {
   aiUserSkillsOpenFolder?: () => Promise<UserSkillsStatusResult>;
   publicMcpGetStatus?: () => Promise<PublicMcpStatus>;
   publicMcpSetEnabled?: (enabled: boolean) => Promise<PublicMcpStatus>;
+  publicMcpSetConfig?: (config: PublicMcpConfig) => Promise<PublicMcpStatus>;
   publicMcpCodexGetStatus?: () => Promise<PublicMcpCodexStatus>;
   publicMcpCodexAdd?: () => Promise<PublicMcpCodexStatus>;
   publicMcpClaudeGetStatus?: () => Promise<PublicMcpClaudeStatus>;
@@ -117,6 +118,12 @@ export interface NetcattyAiBridge {
 }
 
 export type PublicMcpBridgeState = "disabled" | "starting" | "running" | "error" | "unavailable";
+export type PublicMcpMode = "temporary" | "persistent";
+
+export interface PublicMcpConfig {
+  mode?: PublicMcpMode;
+  idleTimeoutMinutes?: number;
+}
 
 export interface PublicMcpStatus {
   ok: boolean;
@@ -127,6 +134,10 @@ export interface PublicMcpStatus {
   discoveryPath: string | null;
   launcherPath: string | null;
   exposedSessionCount: number;
+  mode?: PublicMcpMode;
+  idleTimeoutMinutes?: number;
+  lastActivityAt?: number | null;
+  idleExpiresAt?: number | null;
   error: string | null;
 }
 

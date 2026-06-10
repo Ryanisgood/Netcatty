@@ -853,6 +853,9 @@ function createPreloadApi(ctx) {
   publicMcpSetEnabled: async (enabled) => {
     return ipcRenderer.invoke("netcatty:public-mcp:set-enabled", { enabled });
   },
+  publicMcpSetConfig: async (config) => {
+    return ipcRenderer.invoke("netcatty:public-mcp:set-config", config || {});
+  },
   publicMcpCodexGetStatus: async () => {
     return ipcRenderer.invoke("netcatty:public-mcp:codex:get-status");
   },

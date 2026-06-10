@@ -118,6 +118,10 @@ const SettingsAITabContainer: React.FC = () => {
                     setWebSearchConfig={aiState.setWebSearchConfig}
                     publicMcpEnabled={aiState.publicMcpEnabled}
                     setPublicMcpEnabled={aiState.setPublicMcpEnabled}
+                    publicMcpMode={aiState.publicMcpMode}
+                    setPublicMcpMode={aiState.setPublicMcpMode}
+                    publicMcpIdleTimeoutMinutes={aiState.publicMcpIdleTimeoutMinutes}
+                    setPublicMcpIdleTimeoutMinutes={aiState.setPublicMcpIdleTimeoutMinutes}
                 />
             </React.Suspense>
         </AITabErrorBoundary>

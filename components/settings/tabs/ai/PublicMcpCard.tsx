@@ -4,7 +4,7 @@ import { useI18n } from "../../../../application/i18n/I18nProvider";
 import { cn } from "../../../../lib/utils";
 import { Button } from "../../../ui/button";
 import { Select, Toggle } from "../../../settings/settings-ui";
-import type { PublicMcpClaudeStatus, PublicMcpCodexStatus, PublicMcpStatus } from "./types";
+import type { PublicMcpClaudeStatus, PublicMcpCodexStatus, PublicMcpMode, PublicMcpStatus } from "./types";
 import { getBridge } from "./types";
 
 type PublicMcpClient = "codex" | "claude";
@@ -23,6 +23,13 @@ export const PUBLIC_MCP_I18N_KEYS = [
   "ai.publicMcp.status.conflict",
   "ai.publicMcp.description",
   "ai.publicMcp.sessionsExposed",
+  "ai.publicMcp.mode",
+  "ai.publicMcp.mode.temporary",
+  "ai.publicMcp.mode.persistent",
+  "ai.publicMcp.mode.description",
+  "ai.publicMcp.idleTimeout",
+  "ai.publicMcp.idleTimeout.description",
+  "ai.publicMcp.idleTimeout.minutes",
   "ai.publicMcp.security",
   "ai.publicMcp.security.description",
   "ai.publicMcp.discovery",
@@ -177,7 +184,11 @@ export function getVisiblePublicMcpSessionCount(status: PublicMcpStatus | null, 
 export const PublicMcpCard: React.FC<{
   enabled: boolean;
   setEnabled: (enabled: boolean) => void;
-}> = ({ enabled, setEnabled }) => {
+  mode: PublicMcpMode;
+  setMode: (mode: PublicMcpMode) => void;
+  idleTimeoutMinutes: number;
+  setIdleTimeoutMinutes: (minutes: number) => void;
+}> = ({ enabled, setEnabled, mode, setMode, idleTimeoutMinutes, setIdleTimeoutMinutes }) => {
   const { t } = useI18n();
   const [status, setStatus] = useState<PublicMcpStatus | null>(null);
   const [selectedClient, setSelectedClient] = useState<PublicMcpClient>("codex");
@@ -236,6 +247,9 @@ export const PublicMcpCard: React.FC<{
         bridge.publicMcpClaudeGetStatus(),
       ]);
       setStatus(nextStatus);
+      if (enabled && nextStatus.ok && !nextStatus.enabled) {
+        setEnabled(false);
+      }
       setCodexStatus(nextCodexStatus);
       setClaudeStatus(nextClaudeStatus);
     } finally {
@@ -243,7 +257,7 @@ export const PublicMcpCard: React.FC<{
         setIsRefreshing(false);
       }
     }
-  }, [bridgeUnavailableMessage, enabled]);
+  }, [bridgeUnavailableMessage, enabled, setEnabled]);
 
   const refreshBridgeStatus = useCallback(async () => {
     const bridge = getBridge();
@@ -251,10 +265,13 @@ export const PublicMcpCard: React.FC<{
     try {
       const nextStatus = await bridge.publicMcpGetStatus();
       setStatus(nextStatus);
+      if (enabled && nextStatus.ok && !nextStatus.enabled) {
+        setEnabled(false);
+      }
     } catch {
       // Keep the last visible status during transient IPC failures.
     }
-  }, []);
+  }, [enabled, setEnabled]);
 
   useEffect(() => {
     void refreshStatus();
@@ -304,6 +321,22 @@ export const PublicMcpCard: React.FC<{
       void refreshStatus();
     }, 0);
   }, [refreshStatus, setEnabled]);
+
+  const handleModeChange = useCallback((value: string) => {
+    setMode(value === "persistent" ? "persistent" : "temporary");
+    window.setTimeout(() => {
+      void refreshBridgeStatus();
+    }, 0);
+  }, [refreshBridgeStatus, setMode]);
+
+  const handleIdleTimeoutChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const minutes = Number.parseInt(event.currentTarget.value, 10);
+    if (!Number.isFinite(minutes)) return;
+    setIdleTimeoutMinutes(minutes);
+    window.setTimeout(() => {
+      void refreshBridgeStatus();
+    }, 0);
+  }, [refreshBridgeStatus, setIdleTimeoutMinutes]);
 
   const copyText = useCallback(async (key: string, text: string) => {
     if (!text) return;
@@ -403,6 +436,48 @@ export const PublicMcpCard: React.FC<{
           </div>
         </div>
         <Toggle checked={enabled} onChange={(nextEnabled) => void handleToggle(nextEnabled)} />
+      </div>
+
+      <div className="rounded-md border border-border/60 bg-background/70 px-3 py-2 space-y-2">
+        <div className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <div className="text-sm font-medium">{t("ai.publicMcp.mode")}</div>
+            <div className="text-xs text-muted-foreground">
+              {t("ai.publicMcp.mode.description")}
+            </div>
+          </div>
+          <Select
+            value={mode}
+            onChange={handleModeChange}
+            options={[
+              { value: "temporary", label: t("ai.publicMcp.mode.temporary") },
+              { value: "persistent", label: t("ai.publicMcp.mode.persistent") },
+            ]}
+            className="w-40"
+          />
+        </div>
+
+        {mode === "temporary" ? (
+          <div className="flex items-center justify-between gap-4 border-t border-border/40 pt-2">
+            <div className="min-w-0">
+              <div className="text-sm font-medium">{t("ai.publicMcp.idleTimeout")}</div>
+              <div className="text-xs text-muted-foreground">
+                {t("ai.publicMcp.idleTimeout.description")}
+              </div>
+            </div>
+            <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+              <input
+                type="number"
+                min={1}
+                max={1440}
+                value={idleTimeoutMinutes}
+                onChange={handleIdleTimeoutChange}
+                className="h-8 w-20 rounded-md border border-input bg-background px-2 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              />
+              {t("ai.publicMcp.idleTimeout.minutes")}
+            </label>
+          </div>
+        ) : null}
       </div>
 
       <div className="space-y-2 text-xs">

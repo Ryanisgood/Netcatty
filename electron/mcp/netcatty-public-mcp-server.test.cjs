@@ -1,13 +1,46 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { EventEmitter } = require("node:events");
 
 const {
   createUnavailableError,
+  createRpcTimeoutError,
+  resolvePublicRpcTimeoutMs,
   readDiscovery,
+  connectPublicBridge,
   createPublicBridgeClientManager,
   mapToolResult,
   PUBLIC_TOOL_DEFINITIONS,
 } = require("./netcatty-public-mcp-server.cjs");
+
+function createFakeNetModule(onRequest) {
+  const writes = [];
+  let socket = null;
+
+  return {
+    writes,
+    createConnection(_options, onConnect) {
+      socket = new EventEmitter();
+      socket.destroyed = false;
+      socket.writable = true;
+      socket.setEncoding = () => {};
+      socket.end = () => {
+        socket.writable = false;
+        socket.destroyed = true;
+        socket.emit("close");
+      };
+      socket.write = (line) => {
+        writes.push(line);
+        const message = JSON.parse(line);
+        onRequest?.(message, (payload) => {
+          socket.emit("data", `${JSON.stringify({ jsonrpc: "2.0", id: message.id, ...payload })}\n`);
+        });
+      };
+      setImmediate(onConnect);
+      return socket;
+    },
+  };
+}
 
 test("readDiscovery returns parsed payload and missing/invalid discovery become unavailable errors", () => {
   const missingFs = {
@@ -118,6 +151,82 @@ test("public tool definitions map to expected RPC methods and params", () => {
   );
 });
 
+test("public RPC timeout uses bridge command timeout for long-running methods", () => {
+  assert.equal(resolvePublicRpcTimeoutMs("public/getEnvironment", 120000), 30000);
+  assert.equal(resolvePublicRpcTimeoutMs("public/terminalPoll", 120000), 30000);
+  assert.equal(resolvePublicRpcTimeoutMs("public/terminalExecute", 120000), 125000);
+  assert.equal(resolvePublicRpcTimeoutMs("public/sftp/writeFile", 120000), 125000);
+  assert.equal(resolvePublicRpcTimeoutMs("public/sftp/readFile", null), 65000);
+  assert.equal(resolvePublicRpcTimeoutMs("public/sftp/readFile", 1000), 30000);
+});
+
+test("public RPC timeout error says client timeout does not cancel bridge operation", () => {
+  const error = createRpcTimeoutError("public/sftp/writeFile", 125000);
+
+  assert.equal(error.code, "PUBLIC_MCP_RPC_TIMEOUT");
+  assert.match(error.message, /after 125000ms/);
+  assert.match(error.message, /does not cancel in-flight operations/i);
+  assert.match(error.message, /may still complete/i);
+});
+
+test("connectPublicBridge derives long RPC timeout from bridge status commandTimeoutMs", async () => {
+  const scheduledTimeouts = [];
+  const clearedTimeouts = [];
+  const fakeNet = createFakeNetModule((message, respond) => {
+    if (message.method === "auth/verify") {
+      respond({ result: { ok: true } });
+      return;
+    }
+    if (message.method === "public/getStatus") {
+      respond({ result: { ok: true, commandTimeoutMs: 120000 } });
+    }
+  });
+
+  const client = await connectPublicBridge(
+    { host: "127.0.0.1", port: 41021, token: "token" },
+    {
+      netModule: fakeNet,
+      setTimeout(callback, delay) {
+        const timeout = { callback, delay };
+        scheduledTimeouts.push(timeout);
+        return timeout;
+      },
+      clearTimeout(timeout) {
+        clearedTimeouts.push(timeout);
+      },
+    },
+  );
+
+  assert.deepEqual(
+    JSON.parse(fakeNet.writes[0]),
+    { jsonrpc: "2.0", id: 1, method: "auth/verify", params: { token: "token" } },
+  );
+  assert.deepEqual(
+    JSON.parse(fakeNet.writes[1]),
+    { jsonrpc: "2.0", id: 2, method: "public/getStatus", params: {} },
+  );
+  assert.deepEqual(scheduledTimeouts.map((timeout) => timeout.delay), [30000, 30000]);
+  assert.deepEqual(clearedTimeouts, scheduledTimeouts);
+
+  const pendingCall = client.call("public/terminalExecute", {
+    sessionId: "ssh-1",
+    command: "sleep 35",
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(scheduledTimeouts.at(-1).delay, 125000);
+  scheduledTimeouts.at(-1).callback();
+
+  await assert.rejects(
+    pendingCall,
+    (error) => error.code === "PUBLIC_MCP_RPC_TIMEOUT" &&
+      /after 125000ms/.test(error.message) &&
+      /may still complete/i.test(error.message),
+  );
+
+  client.close();
+});
+
 test("client manager connects, authenticates, and reconnects after stale discovery/auth changes", async () => {
   const discoveryQueue = [
     { host: "127.0.0.1", port: 41001, token: "old-token" },
@@ -218,4 +327,41 @@ test("client manager reconnects on closed connection and returns unavailable aft
     manager.call("public/getStatus", {}),
     (error) => error.code === "PUBLIC_MCP_UNAVAILABLE" && /disabled|not running/i.test(error.message),
   );
+});
+
+test("client manager preserves non-retry timeout errors after reconnect attempt", async () => {
+  const discoveryQueue = [
+    { host: "127.0.0.1", port: 41031, token: "token-a" },
+    { host: "127.0.0.1", port: 41032, token: "token-b" },
+  ];
+  const clients = [];
+  const manager = createPublicBridgeClientManager({
+    readDiscovery() {
+      return discoveryQueue[0];
+    },
+    async connectPublicBridge(discovery) {
+      const client = {
+        async call(method) {
+          if (method === "auth/verify") return { ok: true };
+          if (discovery.port === 41031) throw new Error("Connection closed");
+          throw createRpcTimeoutError(method, 125000);
+        },
+        close() {},
+      };
+      clients.push(client);
+      return client;
+    },
+    shouldRetryConnection(error) {
+      return /closed|refused|stale|auth/i.test(error.message);
+    },
+    onRetry() {
+      discoveryQueue.shift();
+    },
+  });
+
+  await assert.rejects(
+    manager.call("public/sftp/writeFile", {}),
+    (error) => error.code === "PUBLIC_MCP_RPC_TIMEOUT" && /may still complete/i.test(error.message),
+  );
+  assert.equal(clients.length, 2);
 });

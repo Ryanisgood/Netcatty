@@ -142,6 +142,8 @@ export const STORAGE_KEY_AI_AGENT_MODEL_MAP = 'netcatty_ai_agent_model_map_v1';
 export const STORAGE_KEY_AI_AGENT_PROVIDER_MAP = 'netcatty_ai_agent_provider_map_v1';
 export const STORAGE_KEY_AI_WEB_SEARCH = 'netcatty_ai_web_search_v1';
 export const STORAGE_KEY_AI_PUBLIC_MCP_ENABLED = 'netcatty_ai_public_mcp_enabled_v1';
+export const STORAGE_KEY_AI_PUBLIC_MCP_MODE = 'netcatty_ai_public_mcp_mode_v1';
+export const STORAGE_KEY_AI_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES = 'netcatty_ai_public_mcp_idle_timeout_minutes_v1';
 
 // SFTP Transfer Concurrency
 export const STORAGE_KEY_SFTP_TRANSFER_CONCURRENCY = 'netcatty_sftp_transfer_concurrency_v1';

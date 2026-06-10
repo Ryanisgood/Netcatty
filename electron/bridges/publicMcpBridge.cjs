@@ -13,6 +13,11 @@ const { createPublicMcpClaudeSetup } = require("./publicMcpBridge/claudeSetup.cj
 const { getPublicMcpLauncherPath } = require("../cli/publicMcpDiscoveryPath.cjs");
 
 let mainWebContentsId = null;
+const PUBLIC_MCP_MODE_TEMPORARY = "temporary";
+const PUBLIC_MCP_MODE_PERSISTENT = "persistent";
+const DEFAULT_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES = 10;
+const MIN_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES = 1;
+const MAX_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES = 24 * 60;
 
 function loadPtyExecDeps() {
   return require("./ai/ptyExec.cjs");
@@ -47,6 +52,19 @@ function validateSenderOrSettings(event) {
   } catch {
     return false;
   }
+}
+
+function normalizePublicMcpMode(value) {
+  return value === PUBLIC_MCP_MODE_PERSISTENT ? PUBLIC_MCP_MODE_PERSISTENT : PUBLIC_MCP_MODE_TEMPORARY;
+}
+
+function normalizeIdleTimeoutMinutes(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return DEFAULT_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES;
+  return Math.min(
+    MAX_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES,
+    Math.max(MIN_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES, Math.round(parsed)),
+  );
 }
 
 function createPublicMcpBridge(overrides = {}) {
@@ -85,6 +103,9 @@ function createPublicMcpBridge(overrides = {}) {
     safeSend: overrides.safeSend || null,
     validateSenderOrSettings: overrides.validateSenderOrSettings || validateSenderOrSettings,
     randomBytes: overrides.randomBytes || ((size) => deps.crypto.randomBytes(size)),
+    Date: overrides.Date || Date,
+    setTimeout: overrides.setTimeout || setTimeout,
+    clearTimeout: overrides.clearTimeout || clearTimeout,
   };
 
   let sessions = new Map();
@@ -102,6 +123,11 @@ function createPublicMcpBridge(overrides = {}) {
   let token = null;
   let startPromise = null;
   let stopPromise = null;
+  let mode = PUBLIC_MCP_MODE_TEMPORARY;
+  let idleTimeoutMinutes = DEFAULT_PUBLIC_MCP_IDLE_TIMEOUT_MINUTES;
+  let lastActivityAt = null;
+  let idleExpiresAt = null;
+  let idleTimer = null;
   let tcpServer = null;
   let registry = null;
   let terminalHandlers = null;
@@ -113,6 +139,40 @@ function createPublicMcpBridge(overrides = {}) {
 
   function getCommandTimeoutMs() {
     return mcpServerBridge?.getCommandTimeoutMs?.() || commandTimeoutMs;
+  }
+
+  function clearIdleTimer() {
+    if (!idleTimer) return;
+    deps.clearTimeout(idleTimer);
+    idleTimer = null;
+  }
+
+  function getNow() {
+    return deps.Date.now();
+  }
+
+  function scheduleIdleShutdown() {
+    clearIdleTimer();
+    if (!enabled || state !== "running" || mode !== PUBLIC_MCP_MODE_TEMPORARY) {
+      idleExpiresAt = null;
+      return;
+    }
+
+    const now = getNow();
+    if (!lastActivityAt) {
+      lastActivityAt = now;
+    }
+    idleExpiresAt = lastActivityAt + idleTimeoutMinutes * 60 * 1000;
+    const delayMs = Math.max(0, idleExpiresAt - now);
+    idleTimer = deps.setTimeout(() => {
+      idleTimer = null;
+      void setEnabled(false);
+    }, delayMs);
+  }
+
+  function recordActivity() {
+    lastActivityAt = getNow();
+    scheduleIdleShutdown();
   }
 
   function ensureRuntime() {
@@ -191,11 +251,17 @@ function createPublicMcpBridge(overrides = {}) {
       discoveryPath: discoveryFilePath || null,
       launcherPath: deps.getPublicMcpLauncherPath() || null,
       exposedSessionCount: activeRegistry.listPublicSessions().length,
+      mode,
+      idleTimeoutMinutes,
+      lastActivityAt,
+      idleExpiresAt,
       error,
     };
   }
 
   async function stopActiveRuntime() {
+    clearIdleTimer();
+    idleExpiresAt = null;
     for (const cancel of activePublicSftpOps) {
       try {
         cancel?.();
@@ -229,6 +295,7 @@ function createPublicMcpBridge(overrides = {}) {
       host,
       token: nextToken,
       dispatch: (method, params) => rpcHandlers.dispatch(method, params),
+      onActivity: recordActivity,
     });
 
     const address = await nextServer.start();
@@ -250,6 +317,7 @@ function createPublicMcpBridge(overrides = {}) {
       token,
       pid: process.pid,
     });
+    lastActivityAt = getNow();
   }
 
   async function setEnabled(nextEnabled) {
@@ -293,6 +361,7 @@ function createPublicMcpBridge(overrides = {}) {
           return;
         }
         state = "running";
+        scheduleIdleShutdown();
       })
       .catch(async (startError) => {
         error = startError?.message || String(startError);
@@ -308,6 +377,27 @@ function createPublicMcpBridge(overrides = {}) {
       });
 
     await startPromise;
+    return buildStatus();
+  }
+
+  function setConfig(config = {}) {
+    const nextMode = config.mode == null ? mode : normalizePublicMcpMode(config.mode);
+    const nextIdleTimeoutMinutes = config.idleTimeoutMinutes == null
+      ? idleTimeoutMinutes
+      : normalizeIdleTimeoutMinutes(config.idleTimeoutMinutes);
+    const modeChanged = nextMode !== mode;
+    const timeoutChanged = nextIdleTimeoutMinutes !== idleTimeoutMinutes;
+
+    mode = nextMode;
+    idleTimeoutMinutes = nextIdleTimeoutMinutes;
+
+    if (modeChanged || timeoutChanged) {
+      if (enabled && state === "running") {
+        lastActivityAt = getNow();
+      }
+      scheduleIdleShutdown();
+    }
+
     return buildStatus();
   }
 
@@ -349,6 +439,13 @@ function createPublicMcpBridge(overrides = {}) {
       return await setEnabled(Boolean(payload?.enabled));
     });
 
+    ipcMain.handle("netcatty:public-mcp:set-config", async (event, payload) => {
+      if (!deps.validateSenderOrSettings(event)) {
+        return { ok: false, error: "Unauthorized IPC sender" };
+      }
+      return setConfig(payload || {});
+    });
+
     ipcMain.handle("netcatty:public-mcp:codex:get-status", async (event) => {
       if (!deps.validateSenderOrSettings(event)) {
         return { ok: false, error: "Unauthorized IPC sender" };
@@ -382,6 +479,9 @@ function createPublicMcpBridge(overrides = {}) {
     enabled = false;
     state = "disabled";
     error = null;
+    clearIdleTimer();
+    lastActivityAt = null;
+    idleExpiresAt = null;
     if (startPromise) {
       await startPromise.catch(() => {});
     }
@@ -392,6 +492,7 @@ function createPublicMcpBridge(overrides = {}) {
     init,
     registerHandlers,
     setEnabled,
+    setConfig,
     getStatus,
     cleanup,
   };
@@ -404,6 +505,9 @@ module.exports = {
   init: singleton.init,
   registerHandlers: singleton.registerHandlers,
   setEnabled: singleton.setEnabled,
+  setConfig: singleton.setConfig,
   getStatus: singleton.getStatus,
   cleanup: singleton.cleanup,
+  normalizePublicMcpMode,
+  normalizeIdleTimeoutMinutes,
 };

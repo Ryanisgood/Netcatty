@@ -9,7 +9,7 @@ import { useUpdateCheck } from './application/state/useUpdateCheck';
 import { useVaultState } from './application/state/useVaultState';
 import { useWindowControls } from './application/state/useWindowControls';
 import { useEditorTabs } from './application/state/editorTabStore';
-import { usePublicMcpToggleState } from './application/state/usePublicMcpToggleState';
+import { readPublicMcpStartupEnabled, usePublicMcpToggleState } from './application/state/usePublicMcpToggleState';
 import {
   clearReferenceKeyPassphrases,
   clearKeyPassphrasesByIds,
@@ -49,7 +49,6 @@ import { localStorageAdapter } from './infrastructure/persistence/localStorageAd
 import {
   STORAGE_KEY_DEBUG_HOTKEYS,
   STORAGE_KEY_PORT_FORWARDING,
-  STORAGE_KEY_AI_PUBLIC_MCP_ENABLED,
 } from './infrastructure/config/storageKeys';
 import { getEffectiveKnownHosts } from './infrastructure/syncHelpers';
 import { ToastProvider, toast } from './components/ui/toast';
@@ -145,8 +144,7 @@ function App({ settings }: { settings: SettingsState }) {
   } = settings;
 
   useEffect(() => {
-    const enabled = localStorageAdapter.readBoolean(STORAGE_KEY_AI_PUBLIC_MCP_ENABLED) ?? false;
-    void netcattyBridge.get()?.publicMcpSetEnabled?.(enabled);
+    void netcattyBridge.get()?.publicMcpSetEnabled?.(readPublicMcpStartupEnabled());
   }, []);
 
   const discoveredShells = useDiscoveredShells();

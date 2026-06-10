@@ -10,6 +10,7 @@ function createPublicTcpServer(options) {
     port = 0,
     token,
     dispatch,
+    onActivity,
     maxBufferBytes = DEFAULT_MAX_BUFFER_BYTES,
     netModule = net,
   } = options;
@@ -63,6 +64,7 @@ function createPublicTcpServer(options) {
     }
 
     try {
+      onActivity?.({ method });
       const result = await dispatch(method, params || {});
       writeJson(socket, { jsonrpc: "2.0", id, result });
     } catch (error) {

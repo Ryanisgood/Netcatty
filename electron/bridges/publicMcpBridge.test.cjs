@@ -45,9 +45,11 @@ function createBridgeHarness(overrides = {}) {
   const sftpCleanupCalls = [];
   const codexSetupCalls = [];
   const claudeSetupCalls = [];
+  const timers = [];
   let statusMode = "success";
   let tcpStartSeq = 0;
   let tokenSeq = 0;
+  let nowMs = 1_000_000;
 
   const bridge = publicMcpBridge.createPublicMcpBridge({
     createSessionRegistry: ({ sessions: liveSessions }) => ({
@@ -204,6 +206,19 @@ function createBridgeHarness(overrides = {}) {
       tokenSeq += 1;
       return Buffer.from(String(tokenSeq).padStart(size * 2, "0").slice(0, size * 2), "hex");
     },
+    Date: {
+      now() {
+        return nowMs;
+      },
+    },
+    setTimeout(callback, delayMs) {
+      const timer = { callback, delayMs, cleared: false };
+      timers.push(timer);
+      return timer;
+    },
+    clearTimeout(timer) {
+      if (timer) timer.cleared = true;
+    },
     getPublicMcpLauncherPath() {
       return "/launcher/netcatty-public-mcp";
     },
@@ -302,6 +317,17 @@ function createBridgeHarness(overrides = {}) {
     sftpCleanupCalls,
     codexSetupCalls,
     claudeSetupCalls,
+    timers,
+    advanceTime(ms) {
+      nowMs += ms;
+    },
+    fireLastTimer() {
+      const timer = timers[timers.length - 1];
+      if (timer && !timer.cleared) {
+        timer.callback();
+      }
+      return timer;
+    },
     setStatusMode(value) {
       statusMode = value;
     },
@@ -322,6 +348,10 @@ test("public bridge starts disabled and reports renderer-facing status", async (
     discoveryPath: "/tmp/netcatty-public/discovery.json",
     launcherPath: "/launcher/netcatty-public-mcp",
     exposedSessionCount: 1,
+    mode: "temporary",
+    idleTimeoutMinutes: 10,
+    lastActivityAt: null,
+    idleExpiresAt: null,
     error: null,
   });
   assert.deepEqual(discoveryRemoves, ["/tmp/netcatty-public/discovery.json"]);
@@ -345,6 +375,76 @@ test("public bridge setEnabled(true) starts server, writes discovery, and is ide
   assert.equal(tcpServers[0].starts, 1);
   assert.equal(second.port, 47001);
   assert.equal(second.state, "running");
+});
+
+test("public bridge config defaults to temporary mode and accepts mode updates", async () => {
+  const { bridge, timers } = createBridgeHarness();
+
+  let status = bridge.getStatus();
+  assert.equal(status.mode, "temporary");
+  assert.equal(status.idleTimeoutMinutes, 10);
+
+  status = bridge.setConfig({ mode: "persistent", idleTimeoutMinutes: 30 });
+  assert.equal(status.mode, "persistent");
+  assert.equal(status.idleTimeoutMinutes, 30);
+
+  await bridge.setEnabled(true);
+  status = bridge.getStatus();
+  assert.equal(status.mode, "persistent");
+  assert.equal(status.idleExpiresAt, null);
+  assert.equal(timers.length, 0);
+});
+
+test("public bridge temporary mode disables runtime after idle timeout", async () => {
+  const { bridge, timers, fireLastTimer } = createBridgeHarness();
+
+  bridge.setConfig({ mode: "temporary", idleTimeoutMinutes: 1 });
+  const running = await bridge.setEnabled(true);
+
+  assert.equal(running.state, "running");
+  assert.equal(running.lastActivityAt, 1_000_000);
+  assert.equal(running.idleExpiresAt, 1_060_000);
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0].delayMs, 60_000);
+
+  fireLastTimer();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const stopped = bridge.getStatus();
+  assert.equal(stopped.enabled, false);
+  assert.equal(stopped.state, "disabled");
+  assert.equal(stopped.idleExpiresAt, null);
+});
+
+test("public bridge switching to temporary mode starts a fresh idle window", async () => {
+  const { bridge, timers, advanceTime } = createBridgeHarness();
+
+  bridge.setConfig({ mode: "persistent", idleTimeoutMinutes: 1 });
+  await bridge.setEnabled(true);
+  advanceTime(30_000);
+  const temporary = bridge.setConfig({ mode: "temporary" });
+
+  assert.equal(temporary.mode, "temporary");
+  assert.equal(temporary.lastActivityAt, 1_030_000);
+  assert.equal(temporary.idleExpiresAt, 1_090_000);
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0].delayMs, 60_000);
+});
+
+test("public bridge ipc handler updates runtime config", async () => {
+  const { bridge } = createBridgeHarness();
+  const ipcMain = createIpcMainStub();
+  bridge.registerHandlers(ipcMain);
+
+  const setConfigHandler = ipcMain.handlers.get("netcatty:public-mcp:set-config");
+  assert.equal(typeof setConfigHandler, "function");
+
+  const unauthorized = await setConfigHandler(makeEvent(99), { mode: "persistent" });
+  assert.deepEqual(unauthorized, { ok: false, error: "Unauthorized IPC sender" });
+
+  const status = await setConfigHandler(makeEvent(1), { mode: "persistent", idleTimeoutMinutes: 42 });
+  assert.equal(status.mode, "persistent");
+  assert.equal(status.idleTimeoutMinutes, 42);
 });
 
 test("public bridge setEnabled(false) stops server, removes discovery, and is idempotent", async () => {

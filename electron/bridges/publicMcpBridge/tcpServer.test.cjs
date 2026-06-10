@@ -113,11 +113,15 @@ test("tcp server requires auth before dispatching requests", async () => {
 
 test("tcp server authenticates once and dispatches JSON-RPC calls", async () => {
   const calls = [];
+  const activities = [];
   const fakeNet = makeNetModule();
   const server = createPublicTcpServer({
     host: "127.0.0.1",
     token: "secret-token",
     netModule: fakeNet,
+    onActivity(activity) {
+      activities.push(activity);
+    },
     async dispatch(method, params) {
       calls.push({ method, params });
       return { ok: true, method, params };
@@ -148,7 +152,38 @@ test("tcp server authenticates once and dispatches JSON-RPC calls", async () => 
     { jsonrpc: "2.0", id: 2, result: { ok: true, method: "public/getStatus", params: {} } },
   ]);
   assert.deepEqual(calls, [{ method: "public/getStatus", params: {} }]);
+  assert.deepEqual(activities, [{ method: "public/getStatus" }]);
   assert.equal(socket.destroyed, false);
+});
+
+test("tcp server does not report activity for failed auth", async () => {
+  const activities = [];
+  const fakeNet = makeNetModule();
+  const server = createPublicTcpServer({
+    host: "127.0.0.1",
+    token: "secret-token",
+    netModule: fakeNet,
+    onActivity(activity) {
+      activities.push(activity);
+    },
+    async dispatch() {
+      return { ok: true };
+    },
+  });
+
+  await server.start();
+  const socket = fakeNet.state.server.connectSocket();
+
+  emitLine(socket, {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "public/getStatus",
+    params: {},
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(activities, []);
 });
 
 test("tcp server serializes dispatch errors as JSON-RPC errors", async () => {

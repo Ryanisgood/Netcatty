@@ -30,6 +30,7 @@ import type {
   CodexIntegrationStatus,
   CodexLoginSession,
   UserSkillsStatusResult,
+  PublicMcpMode,
 } from "./ai/types";
 import {
   getBridge,
@@ -82,6 +83,10 @@ interface SettingsAITabProps {
   setWebSearchConfig: (config: WebSearchConfig | null) => void;
   publicMcpEnabled: boolean;
   setPublicMcpEnabled: (enabled: boolean) => void;
+  publicMcpMode: PublicMcpMode;
+  setPublicMcpMode: (mode: PublicMcpMode) => void;
+  publicMcpIdleTimeoutMinutes: number;
+  setPublicMcpIdleTimeoutMinutes: (minutes: number) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +120,10 @@ const SettingsAITab: React.FC<SettingsAITabProps> = ({
   setWebSearchConfig,
   publicMcpEnabled,
   setPublicMcpEnabled,
+  publicMcpMode,
+  setPublicMcpMode,
+  publicMcpIdleTimeoutMinutes,
+  setPublicMcpIdleTimeoutMinutes,
 }) => {
   const { t } = useI18n();
   const [editingProviderId, setEditingProviderId] = useState<string | null>(null);
@@ -579,6 +588,10 @@ const SettingsAITab: React.FC<SettingsAITabProps> = ({
             <PublicMcpCard
               enabled={publicMcpEnabled}
               setEnabled={setPublicMcpEnabled}
+              mode={publicMcpMode}
+              setMode={setPublicMcpMode}
+              idleTimeoutMinutes={publicMcpIdleTimeoutMinutes}
+              setIdleTimeoutMinutes={setPublicMcpIdleTimeoutMinutes}
             />
           </SettingsSection>
 
