@@ -49,6 +49,10 @@ export const PUBLIC_MCP_I18N_KEYS = [
   "ai.publicMcp.installClaude",
   "ai.publicMcp.conflict.description",
   "ai.publicMcp.enableForLauncher",
+  "ai.publicMcp.approval.title",
+  "ai.publicMcp.approval.badge",
+  "ai.publicMcp.approval.description",
+  "ai.publicMcp.approval.arguments",
 ] as const;
 
 type PublicMcpI18nKey = typeof PUBLIC_MCP_I18N_KEYS[number];

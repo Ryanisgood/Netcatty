@@ -226,6 +226,10 @@ export const enAiMessages: Messages = {
   'ai.chat.menuImage': 'Image',
   'ai.chat.menuMentionHost': 'Mention Host',
   'ai.chat.menuUserSkills': 'User Skills',
+  'ai.publicMcp.approval.title': 'Public MCP request',
+  'ai.publicMcp.approval.badge': 'External',
+  'ai.publicMcp.approval.description': 'An external MCP client wants to run a Netcatty write operation. Netcatty will wait until you approve or reject it.',
+  'ai.publicMcp.approval.arguments': 'Arguments',
 
   // AI Error
   'ai.codex.bridgeError': 'Codex main-process handlers are not loaded yet. Fully restart Netcatty, or restart the Electron dev process, then try again.',

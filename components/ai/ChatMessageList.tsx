@@ -46,13 +46,14 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, isStreaming
   // Subscribe to approval gate events (SDK + MCP tool calls)
   useEffect(() => {
     const handler = (request: ApprovalRequest) => {
+      if (!shouldShowStandaloneApproval(request.toolCallId, request.chatSessionId, activeSessionId, request)) return;
       setPendingApprovals(prev => new Map(prev).set(request.toolCallId, request));
     };
     const unsub = onApprovalRequest(handler);
     // Replay any approvals that fired while this component was unmounted
     replayPendingApprovals(handler);
     return unsub;
-  }, []);
+  }, [activeSessionId]);
 
   // Subscribe to approval cleared/removed events (fired on session stop or timeout)
   useEffect(() => {
@@ -156,6 +157,8 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, isStreaming
   const displayedMessages = hiddenMessageCount > 0
     ? visibleMessages.slice(-renderedTailCount)
     : visibleMessages;
+  const standaloneApprovals = Array.from(pendingApprovals.entries())
+    .filter(([id, req]) => shouldShowStandaloneApproval(id, req.chatSessionId, activeSessionId, req));
 
   const resolvedToolCallIds = new Set(
     displayedMessages
@@ -175,7 +178,7 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, isStreaming
     }
   }
 
-  if (visibleMessages.length === 0 && !isStreaming) {
+  if (visibleMessages.length === 0 && !isStreaming && standaloneApprovals.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center px-6">
         <p className="text-[13px] text-muted-foreground/40 text-center">
@@ -360,9 +363,7 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, isStreaming
         })}
 
         {/* Standalone MCP/SDK approval requests (not tied to SDK tool calls) */}
-        {Array.from(pendingApprovals.entries())
-          .filter(([id, req]) => shouldShowStandaloneApproval(id, req.chatSessionId, activeSessionId))
-          .map(([id, req]) => {
+        {standaloneApprovals.map(([id, req]) => {
             return (
               <div key={id}>
                 <ToolCall

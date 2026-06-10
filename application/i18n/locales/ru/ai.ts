@@ -226,6 +226,10 @@ export const ruAiMessages: Messages = {
   'ai.chat.menuImage': 'Изображение',
   'ai.chat.menuMentionHost': 'Упомянуть хост',
   'ai.chat.menuUserSkills': 'Пользовательские skills',
+  'ai.publicMcp.approval.title': 'Запрос Public MCP',
+  'ai.publicMcp.approval.badge': 'Внешний',
+  'ai.publicMcp.approval.description': 'Внешний MCP-клиент хочет выполнить операцию записи через Netcatty. Netcatty будет ждать, пока вы одобрите или отклоните её.',
+  'ai.publicMcp.approval.arguments': 'Аргументы',
 
   // AI Error
   'ai.codex.bridgeError': 'Обработчики главного процесса Codex ещё не загружены. Полностью перезапустите Netcatty или dev-процесс Electron и попробуйте снова.',

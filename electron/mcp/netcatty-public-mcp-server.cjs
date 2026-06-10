@@ -64,7 +64,7 @@ function resolvePublicRpcTimeoutMs(method, bridgeCommandTimeoutMs, bridgePermiss
       ? bridgeCommandTimeoutMs
       : DEFAULT_OPERATION_TIMEOUT_MS)
     : 0;
-  const approvalTimeoutMs = (bridgePermissionMode === "confirm" && APPROVAL_WAIT_METHODS.has(method))
+  const approvalTimeoutMs = APPROVAL_WAIT_METHODS.has(method)
     ? (Number.isFinite(bridgeApprovalTimeoutMs) && bridgeApprovalTimeoutMs > 0
       ? bridgeApprovalTimeoutMs
       : DEFAULT_APPROVAL_TIMEOUT_MS)

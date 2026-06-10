@@ -6,6 +6,7 @@ import { canReuseTerminalConnection } from '../../application/state/terminalConn
 import { cn } from '../../lib/utils';
 import type { Host, TerminalSession, Workspace } from '../../types';
 import { TerminalLayerView } from './TerminalLayerView';
+import { PublicMcpApprovalPanel } from '../ai/PublicMcpApprovalPanel';
 import { useTerminalAiContexts } from './useTerminalAiContexts';
 import { useTerminalLayerEffects } from './useTerminalLayerEffects';
 import { useTerminalThemePanelState } from './useTerminalThemePanelState';
@@ -429,5 +430,10 @@ export function TerminalLayerTabBridge({ stableRef }: { stableRef: StableRef }) 
     workspaceRectsById,
   ]);
 
-  return <TerminalLayerView ctx={ctx} />;
+  return (
+    <>
+      <TerminalLayerView ctx={ctx} />
+      <PublicMcpApprovalPanel />
+    </>
+  );
 }

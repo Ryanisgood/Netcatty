@@ -154,8 +154,8 @@ test("public tool definitions map to expected RPC methods and params", () => {
 test("public RPC timeout uses bridge command timeout for long-running methods", () => {
   assert.equal(resolvePublicRpcTimeoutMs("public/getEnvironment", 120000), 30000);
   assert.equal(resolvePublicRpcTimeoutMs("public/terminalPoll", 120000), 30000);
-  assert.equal(resolvePublicRpcTimeoutMs("public/terminalExecute", 120000), 125000);
-  assert.equal(resolvePublicRpcTimeoutMs("public/sftp/writeFile", 120000), 125000);
+  assert.equal(resolvePublicRpcTimeoutMs("public/terminalExecute", 120000), 235000);
+  assert.equal(resolvePublicRpcTimeoutMs("public/sftp/writeFile", 120000), 235000);
   assert.equal(resolvePublicRpcTimeoutMs("public/sftp/readFile", null), 65000);
   assert.equal(resolvePublicRpcTimeoutMs("public/sftp/readFile", 1000), 30000);
 });
@@ -164,7 +164,13 @@ test("public RPC timeout includes approval window for confirm-mode writes", () =
   assert.equal(resolvePublicRpcTimeoutMs("public/terminalExecute", 120000, "confirm", 110000), 235000);
   assert.equal(resolvePublicRpcTimeoutMs("public/sftp/writeFile", 120000, "confirm", 110000), 235000);
   assert.equal(resolvePublicRpcTimeoutMs("public/sftp/readFile", 120000, "confirm", 110000), 125000);
-  assert.equal(resolvePublicRpcTimeoutMs("public/terminalExecute", 120000, "autonomous", 110000), 125000);
+  assert.equal(resolvePublicRpcTimeoutMs("public/terminalExecute", 120000, "autonomous", 110000), 235000);
+});
+
+test("public RPC timeout reserves approval window for writes even when cached mode is stale", () => {
+  assert.equal(resolvePublicRpcTimeoutMs("public/terminalExecute", 120000, "autonomous", 110000), 235000);
+  assert.equal(resolvePublicRpcTimeoutMs("public/sftp/writeFile", 120000, null, 110000), 235000);
+  assert.equal(resolvePublicRpcTimeoutMs("public/sftp/readFile", 120000, null, 110000), 125000);
 });
 
 test("public RPC timeout error says client timeout does not cancel bridge operation", () => {

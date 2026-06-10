@@ -226,6 +226,10 @@ export const zhCNAiMessages: Messages = {
   'ai.chat.menuImage': '图片',
   'ai.chat.menuMentionHost': '提及主机',
   'ai.chat.menuUserSkills': '用户 Skills',
+  'ai.publicMcp.approval.title': 'Public MCP 请求',
+  'ai.publicMcp.approval.badge': '外部',
+  'ai.publicMcp.approval.description': '外部 MCP 客户端想通过 Netcatty 执行写操作。Netcatty 会等待你批准或拒绝。',
+  'ai.publicMcp.approval.arguments': '参数',
 
   // AI Error
   'ai.codex.bridgeError': 'Codex 主进程处理器尚未加载。请完全重启 Netcatty 或重启 Electron 开发进程，然后重试。',
