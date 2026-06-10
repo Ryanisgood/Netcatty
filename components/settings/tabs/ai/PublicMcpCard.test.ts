@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildClaudeSnippet,
   buildCodexTomlSnippet,
+  formatClaudeAddCommand,
   formatCodexAddCommand,
 } from "./PublicMcpCard.tsx";
 
@@ -11,6 +12,13 @@ test("formatCodexAddCommand quotes launcher paths with spaces", () => {
   assert.equal(
     formatCodexAddCommand("/Applications/Netcatty Beta/netcatty-public-mcp"),
     'codex mcp add netcatty-public -- "/Applications/Netcatty Beta/netcatty-public-mcp"',
+  );
+});
+
+test("formatClaudeAddCommand quotes launcher paths with spaces", () => {
+  assert.equal(
+    formatClaudeAddCommand("/Applications/Netcatty Beta/netcatty-public-mcp"),
+    'claude mcp add netcatty-public -- "/Applications/Netcatty Beta/netcatty-public-mcp"',
   );
 });
 

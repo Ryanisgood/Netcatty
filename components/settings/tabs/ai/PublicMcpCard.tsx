@@ -3,9 +3,11 @@ import { Copy, RefreshCw } from "lucide-react";
 import { useI18n } from "../../../../application/i18n/I18nProvider";
 import { cn } from "../../../../lib/utils";
 import { Button } from "../../../ui/button";
-import { Toggle } from "../../../settings/settings-ui";
-import type { PublicMcpCodexStatus, PublicMcpStatus } from "./types";
+import { Select, Toggle } from "../../../settings/settings-ui";
+import type { PublicMcpClaudeStatus, PublicMcpCodexStatus, PublicMcpStatus } from "./types";
 import { getBridge } from "./types";
+
+type PublicMcpClient = "codex" | "claude";
 
 function getBridgeStatusView(status: PublicMcpStatus | null, enabled: boolean) {
   if (!status || !status.ok) {
@@ -62,6 +64,23 @@ function getCodexStatusView(status: PublicMcpCodexStatus | null) {
   }
 }
 
+function getClaudeStatusView(status: PublicMcpClaudeStatus | null) {
+  switch (status?.state) {
+    case "configured":
+      return { label: "Configured", className: "text-emerald-500" };
+    case "not_configured":
+      return { label: "Not configured", className: "text-muted-foreground" };
+    case "claude_not_found":
+      return { label: "Claude Code not found", className: "text-amber-500" };
+    case "conflict":
+      return { label: "Conflict", className: "text-destructive" };
+    case "error":
+      return { label: "Error", className: "text-destructive" };
+    default:
+      return { label: "Checking", className: "text-muted-foreground" };
+  }
+}
+
 function escapeTomlBasicString(value: string) {
   return value
     .replaceAll("\\", "\\\\")
@@ -76,6 +95,10 @@ function quoteShellArg(value: string) {
 
 export function formatCodexAddCommand(launcherPath: string) {
   return `codex mcp add netcatty-public -- ${quoteShellArg(launcherPath)}`;
+}
+
+export function formatClaudeAddCommand(launcherPath: string) {
+  return `claude mcp add netcatty-public -- ${quoteShellArg(launcherPath)}`;
 }
 
 export function buildCodexTomlSnippet(launcherPath: string) {
@@ -101,15 +124,18 @@ export const PublicMcpCard: React.FC<{
 }> = ({ enabled, setEnabled }) => {
   const { t } = useI18n();
   const [status, setStatus] = useState<PublicMcpStatus | null>(null);
+  const [selectedClient, setSelectedClient] = useState<PublicMcpClient>("codex");
   const [codexStatus, setCodexStatus] = useState<PublicMcpCodexStatus | null>(null);
+  const [claudeStatus, setClaudeStatus] = useState<PublicMcpClaudeStatus | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isAddingCodex, setIsAddingCodex] = useState(false);
+  const [isAddingClaude, setIsAddingClaude] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<{ tone: "error" | "warning" | "success"; text: string } | null>(null);
 
   const refreshStatus = useCallback(async (options?: { quiet?: boolean }) => {
     const bridge = getBridge();
-    if (!bridge?.publicMcpGetStatus || !bridge?.publicMcpCodexGetStatus) {
+    if (!bridge?.publicMcpGetStatus || !bridge?.publicMcpCodexGetStatus || !bridge?.publicMcpClaudeGetStatus) {
       setStatus({
         ok: false,
         enabled,
@@ -130,6 +156,15 @@ export const PublicMcpCard: React.FC<{
         existingCommand: null,
         error: "Public MCP bridge unavailable",
       });
+      setClaudeStatus({
+        ok: true,
+        state: "error",
+        claudePath: null,
+        launcherPath: null,
+        command: "",
+        existingCommand: null,
+        error: "Public MCP bridge unavailable",
+      });
       return;
     }
 
@@ -138,12 +173,14 @@ export const PublicMcpCard: React.FC<{
     }
 
     try {
-      const [nextStatus, nextCodexStatus] = await Promise.all([
+      const [nextStatus, nextCodexStatus, nextClaudeStatus] = await Promise.all([
         bridge.publicMcpGetStatus(),
         bridge.publicMcpCodexGetStatus(),
+        bridge.publicMcpClaudeGetStatus(),
       ]);
       setStatus(nextStatus);
       setCodexStatus(nextCodexStatus);
+      setClaudeStatus(nextClaudeStatus);
     } finally {
       if (!options?.quiet) {
         setIsRefreshing(false);
@@ -172,14 +209,22 @@ export const PublicMcpCard: React.FC<{
     () => getCodexStatusView(codexStatus),
     [codexStatus],
   );
+  const claudeStatusView = useMemo(
+    () => getClaudeStatusView(claudeStatus),
+    [claudeStatus],
+  );
 
-  const launcherPath = status?.launcherPath || codexStatus?.launcherPath || null;
+  const launcherPath = status?.launcherPath || codexStatus?.launcherPath || claudeStatus?.launcherPath || null;
   const codexCommand = launcherPath
     ? formatCodexAddCommand(launcherPath)
     : (codexStatus?.command || "");
+  const claudeCommand = launcherPath
+    ? formatClaudeAddCommand(launcherPath)
+    : (claudeStatus?.command || "");
   const codexTomlSnippet = launcherPath ? buildCodexTomlSnippet(launcherPath) : "";
   const claudeSnippet = launcherPath ? buildClaudeSnippet(launcherPath) : "";
   const canAddToCodex = codexStatus?.state === "not_configured";
+  const canAddToClaude = claudeStatus?.state === "not_configured";
 
   const handleToggle = useCallback(async (nextEnabled: boolean) => {
     setActionMessage(null);
@@ -234,6 +279,40 @@ export const PublicMcpCard: React.FC<{
     }
   }, [refreshStatus]);
 
+  const handleAddToClaude = useCallback(async () => {
+    const bridge = getBridge();
+    if (!bridge?.publicMcpClaudeAdd) return;
+    setActionMessage(null);
+    setIsAddingClaude(true);
+    try {
+      const result = await bridge.publicMcpClaudeAdd();
+      setClaudeStatus(result);
+      if (result.state === "configured") {
+        setActionMessage({
+          tone: "success",
+          text: "Claude Code MCP entry added. Restart Claude Code or open a new Claude Code session.",
+        });
+      } else if (result.state === "claude_not_found") {
+        setActionMessage({
+          tone: "warning",
+          text: "Install Claude Code separately, then click Refresh.",
+        });
+      } else if (result.state === "conflict") {
+        setActionMessage({
+          tone: "error",
+          text: "A netcatty-public entry already exists and points elsewhere. Remove or edit it manually.",
+        });
+      } else if (result.state === "error" && result.error) {
+        setActionMessage({ tone: "error", text: result.error });
+      }
+      await refreshStatus({ quiet: true });
+    } finally {
+      setIsAddingClaude(false);
+    }
+  }, [refreshStatus]);
+
+  const selectedClientStatusView = selectedClient === "codex" ? codexStatusView : claudeStatusView;
+
   return (
     <div className="rounded-lg border bg-card p-4 space-y-3">
       <div className="flex items-start justify-between gap-4">
@@ -273,38 +352,80 @@ export const PublicMcpCard: React.FC<{
         ) : null}
       </div>
 
-      <div className="border-t border-border/40 pt-3 flex items-center gap-2 flex-wrap">
-        <Button variant="outline" size="sm" onClick={() => void refreshStatus()} disabled={isRefreshing}>
-          <RefreshCw size={14} className={cn("mr-1.5", isRefreshing && "animate-spin")} />
-          {t("ai.codex.refreshStatus")}
-        </Button>
-        {canAddToCodex ? (
-          <Button size="sm" onClick={() => void handleAddToCodex()} disabled={isAddingCodex || !launcherPath}>
-            <RefreshCw size={14} className={cn("mr-1.5", isAddingCodex && "animate-spin")} />
-            Add to Codex
+      <div className="border-t border-border/40 pt-3 space-y-3">
+        <div className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <div className="text-sm font-medium">Client configuration</div>
+            <div className="text-xs text-muted-foreground">
+              Choose one MCP client to configure.
+            </div>
+          </div>
+          <Select
+            value={selectedClient}
+            onChange={(value) => {
+              setActionMessage(null);
+              setSelectedClient(value as PublicMcpClient);
+            }}
+            options={[
+              { value: "codex", label: "Codex" },
+              { value: "claude", label: "Claude Code" },
+            ]}
+            className="w-40"
+          />
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" size="sm" onClick={() => void refreshStatus()} disabled={isRefreshing}>
+            <RefreshCw size={14} className={cn("mr-1.5", isRefreshing && "animate-spin")} />
+            {t("ai.codex.refreshStatus")}
           </Button>
-        ) : null}
+          {selectedClient === "codex" && canAddToCodex ? (
+            <Button size="sm" onClick={() => void handleAddToCodex()} disabled={isAddingCodex || !launcherPath}>
+              <RefreshCw size={14} className={cn("mr-1.5", isAddingCodex && "animate-spin")} />
+              Add to Codex
+            </Button>
+          ) : null}
+          {selectedClient === "claude" && canAddToClaude ? (
+            <Button size="sm" onClick={() => void handleAddToClaude()} disabled={isAddingClaude || !launcherPath}>
+              <RefreshCw size={14} className={cn("mr-1.5", isAddingClaude && "animate-spin")} />
+              Add to Claude Code
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-4">
-          <div className="text-sm font-medium">Codex</div>
-          <div className={cn("text-xs font-medium", codexStatusView.className)}>
-            {codexStatusView.label}
+          <div className="text-sm font-medium">
+            {selectedClient === "codex" ? "Codex" : "Claude Code"}
+          </div>
+          <div className={cn("text-xs font-medium", selectedClientStatusView.className)}>
+            {selectedClientStatusView.label}
           </div>
         </div>
-        {codexStatus?.state === "codex_not_found" ? (
+        {selectedClient === "codex" && codexStatus?.state === "codex_not_found" ? (
           <p className="text-xs text-amber-500">Install Codex separately, then click Refresh.</p>
         ) : null}
-        {codexStatus?.state === "conflict" ? (
+        {selectedClient === "claude" && claudeStatus?.state === "claude_not_found" ? (
+          <p className="text-xs text-amber-500">Install Claude Code separately, then click Refresh.</p>
+        ) : null}
+        {selectedClient === "codex" && codexStatus?.state === "conflict" ? (
           <p className="text-xs text-destructive">
             A netcatty-public entry already exists and points elsewhere. Remove or edit it manually.
           </p>
         ) : null}
-        {codexStatus?.error ? (
+        {selectedClient === "claude" && claudeStatus?.state === "conflict" ? (
+          <p className="text-xs text-destructive">
+            A netcatty-public entry already exists and points elsewhere. Remove or edit it manually.
+          </p>
+        ) : null}
+        {selectedClient === "codex" && codexStatus?.error ? (
           <p className="text-xs text-destructive">{codexStatus.error}</p>
         ) : null}
-        {codexCommand ? (
+        {selectedClient === "claude" && claudeStatus?.error ? (
+          <p className="text-xs text-destructive">{claudeStatus.error}</p>
+        ) : null}
+        {selectedClient === "codex" && codexCommand ? (
           <div className="rounded-md border border-border/60 bg-background px-3 py-2">
             <div className="flex items-start justify-between gap-2">
               <code className="min-w-0 break-all text-[11px]">{codexCommand}</code>
@@ -315,7 +436,18 @@ export const PublicMcpCard: React.FC<{
             </div>
           </div>
         ) : null}
-        {codexTomlSnippet ? (
+        {selectedClient === "claude" && claudeCommand ? (
+          <div className="rounded-md border border-border/60 bg-background px-3 py-2">
+            <div className="flex items-start justify-between gap-2">
+              <code className="min-w-0 break-all text-[11px]">{claudeCommand}</code>
+              <Button variant="ghost" size="sm" onClick={() => void copyText("claude-command", claudeCommand)}>
+                <Copy size={14} className="mr-1.5" />
+                {copied === "claude-command" ? "Copied" : "Copy"}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        {selectedClient === "codex" && codexTomlSnippet ? (
           <div className="rounded-md border border-border/60 bg-background px-3 py-2">
             <div className="flex items-start justify-between gap-2">
               <pre className="min-w-0 whitespace-pre-wrap break-all text-[11px]">{codexTomlSnippet}</pre>
@@ -326,11 +458,7 @@ export const PublicMcpCard: React.FC<{
             </div>
           </div>
         ) : null}
-      </div>
-
-      <div className="space-y-2">
-        <div className="text-sm font-medium">Claude Code</div>
-        {claudeSnippet ? (
+        {selectedClient === "claude" && claudeSnippet ? (
           <div className="rounded-md border border-border/60 bg-background px-3 py-2">
             <div className="flex items-start justify-between gap-2">
               <pre className="min-w-0 whitespace-pre-wrap break-all text-[11px]">{claudeSnippet}</pre>
@@ -340,9 +468,10 @@ export const PublicMcpCard: React.FC<{
               </Button>
             </div>
           </div>
-        ) : (
+        ) : null}
+        {!launcherPath ? (
           <p className="text-xs text-amber-500">Enable Public MCP to get a usable launcher path.</p>
-        )}
+        ) : null}
       </div>
 
       {actionMessage ? (

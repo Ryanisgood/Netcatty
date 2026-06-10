@@ -9,6 +9,7 @@ const { createPublicRpcHandlers } = require("./publicMcpBridge/rpcHandlers.cjs")
 const { createPublicTcpServer } = require("./publicMcpBridge/tcpServer.cjs");
 const { writePublicDiscovery, removePublicDiscovery } = require("./publicMcpBridge/discovery.cjs");
 const { createPublicMcpCodexSetup } = require("./publicMcpBridge/codexSetup.cjs");
+const { createPublicMcpClaudeSetup } = require("./publicMcpBridge/claudeSetup.cjs");
 const { getPublicMcpLauncherPath } = require("../cli/publicMcpDiscoveryPath.cjs");
 
 let mainWebContentsId = null;
@@ -74,6 +75,7 @@ function createPublicMcpBridge(overrides = {}) {
     createPublicRpcHandlers: overrides.createPublicRpcHandlers || createPublicRpcHandlers,
     createPublicTcpServer: overrides.createPublicTcpServer || createPublicTcpServer,
     createPublicMcpCodexSetup: overrides.createPublicMcpCodexSetup || createPublicMcpCodexSetup,
+    createPublicMcpClaudeSetup: overrides.createPublicMcpClaudeSetup || createPublicMcpClaudeSetup,
     writePublicDiscovery: overrides.writePublicDiscovery || writePublicDiscovery,
     removePublicDiscovery: overrides.removePublicDiscovery || removePublicDiscovery,
     getPublicMcpLauncherPath: overrides.getPublicMcpLauncherPath || getPublicMcpLauncherPath,
@@ -106,6 +108,7 @@ function createPublicMcpBridge(overrides = {}) {
   let sftpHandlers = null;
   let rpcHandlers = null;
   let codexSetup = null;
+  let claudeSetup = null;
   const activePublicSftpOps = new Set();
 
   function getCommandTimeoutMs() {
@@ -159,6 +162,11 @@ function createPublicMcpBridge(overrides = {}) {
     });
     if (!codexSetup) {
       codexSetup = deps.createPublicMcpCodexSetup({
+        launcherPath: deps.getPublicMcpLauncherPath() || null,
+      });
+    }
+    if (!claudeSetup) {
+      claudeSetup = deps.createPublicMcpClaudeSetup({
         launcherPath: deps.getPublicMcpLauncherPath() || null,
       });
     }
@@ -317,6 +325,9 @@ function createPublicMcpBridge(overrides = {}) {
     codexSetup = deps.createPublicMcpCodexSetup({
       launcherPath: deps.getPublicMcpLauncherPath() || null,
     });
+    claudeSetup = deps.createPublicMcpClaudeSetup({
+      launcherPath: deps.getPublicMcpLauncherPath() || null,
+    });
   }
 
   function registerHandlers(ipcMain) {
@@ -346,6 +357,20 @@ function createPublicMcpBridge(overrides = {}) {
         return { ok: false, error: "Unauthorized IPC sender" };
       }
       return await codexSetup.addToCodex();
+    });
+
+    ipcMain.handle("netcatty:public-mcp:claude:get-status", async (event) => {
+      if (!deps.validateSenderOrSettings(event)) {
+        return { ok: false, error: "Unauthorized IPC sender" };
+      }
+      return await claudeSetup.getStatus();
+    });
+
+    ipcMain.handle("netcatty:public-mcp:claude:add", async (event) => {
+      if (!deps.validateSenderOrSettings(event)) {
+        return { ok: false, error: "Unauthorized IPC sender" };
+      }
+      return await claudeSetup.addToClaude();
     });
   }
 

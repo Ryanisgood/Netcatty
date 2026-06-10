@@ -859,6 +859,12 @@ function createPreloadApi(ctx) {
   publicMcpCodexAdd: async () => {
     return ipcRenderer.invoke("netcatty:public-mcp:codex:add");
   },
+  publicMcpClaudeGetStatus: async () => {
+    return ipcRenderer.invoke("netcatty:public-mcp:claude:get-status");
+  },
+  publicMcpClaudeAdd: async () => {
+    return ipcRenderer.invoke("netcatty:public-mcp:claude:add");
+  },
   aiUserSkillsGetStatus: async () => {
     return ipcRenderer.invoke("netcatty:ai:user-skills:status");
   },

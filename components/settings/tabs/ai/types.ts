@@ -111,6 +111,8 @@ export interface NetcattyAiBridge {
   publicMcpSetEnabled?: (enabled: boolean) => Promise<PublicMcpStatus>;
   publicMcpCodexGetStatus?: () => Promise<PublicMcpCodexStatus>;
   publicMcpCodexAdd?: () => Promise<PublicMcpCodexStatus>;
+  publicMcpClaudeGetStatus?: () => Promise<PublicMcpClaudeStatus>;
+  publicMcpClaudeAdd?: () => Promise<PublicMcpClaudeStatus>;
   openExternal?: (url: string) => Promise<void>;
 }
 
@@ -129,11 +131,22 @@ export interface PublicMcpStatus {
 }
 
 export type PublicMcpCodexState = "codex_not_found" | "not_configured" | "configured" | "conflict" | "error";
+export type PublicMcpClaudeState = "claude_not_found" | "not_configured" | "configured" | "conflict" | "error";
 
 export interface PublicMcpCodexStatus {
   ok: boolean;
   state: PublicMcpCodexState;
   codexPath?: string | null;
+  launcherPath?: string | null;
+  command?: string;
+  existingCommand?: string | null;
+  error?: string | null;
+}
+
+export interface PublicMcpClaudeStatus {
+  ok: boolean;
+  state: PublicMcpClaudeState;
+  claudePath?: string | null;
   launcherPath?: string | null;
   command?: string;
   existingCommand?: string | null;

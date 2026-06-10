@@ -15,11 +15,22 @@ declare global {
   }
 
   type PublicMcpCodexState = 'codex_not_found' | 'not_configured' | 'configured' | 'conflict' | 'error';
+  type PublicMcpClaudeState = 'claude_not_found' | 'not_configured' | 'configured' | 'conflict' | 'error';
 
   interface PublicMcpCodexStatus {
     ok: boolean;
     state: PublicMcpCodexState;
     codexPath?: string | null;
+    launcherPath?: string | null;
+    command?: string;
+    existingCommand?: string | null;
+    error?: string | null;
+  }
+
+  interface PublicMcpClaudeStatus {
+    ok: boolean;
+    state: PublicMcpClaudeState;
+    claudePath?: string | null;
     launcherPath?: string | null;
     command?: string;
     existingCommand?: string | null;
@@ -130,6 +141,8 @@ declare global {
     publicMcpSetEnabled?(enabled: boolean): Promise<PublicMcpStatus>;
     publicMcpCodexGetStatus?(): Promise<PublicMcpCodexStatus>;
     publicMcpCodexAdd?(): Promise<PublicMcpCodexStatus>;
+    publicMcpClaudeGetStatus?(): Promise<PublicMcpClaudeStatus>;
+    publicMcpClaudeAdd?(): Promise<PublicMcpClaudeStatus>;
     aiUserSkillsGetStatus?(): Promise<{
       ok: boolean;
       directoryPath?: string;
