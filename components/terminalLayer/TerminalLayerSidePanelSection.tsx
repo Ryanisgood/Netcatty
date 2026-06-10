@@ -4,12 +4,32 @@ import React, { memo, useCallback, useState } from 'react';
 
 import { useActiveTabId } from '../../application/state/activeTabStore';
 import { terminalLayoutSuppressStore } from '../../application/state/terminalLayoutSuppressStore';
+import { AI_PANEL_FORCE_HIDE_SHELL } from '../ai/aiPanelDiagnostics';
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import type { SidePanelTab } from './TerminalLayerSupport';
 import { terminalLayerSidePanelCtxEqual } from './terminalLayerViewMemo';
 
 type SidePanelContext = Record<string, any>;
+
+export function getTerminalSidePanelShellWidth({
+  activeSidePanelTab,
+  forceHideAiShell,
+  isSidePanelOpenForCurrentTab,
+  resizePreviewWidth,
+  sidePanelWidth,
+}: {
+  activeSidePanelTab: SidePanelTab | null;
+  forceHideAiShell: boolean;
+  isSidePanelOpenForCurrentTab: boolean;
+  resizePreviewWidth: number | null;
+  sidePanelWidth: number;
+}): number {
+  if (forceHideAiShell && activeSidePanelTab === 'ai') return 0;
+  return isSidePanelOpenForCurrentTab
+    ? (resizePreviewWidth ?? sidePanelWidth)
+    : 0;
+}
 
 function TerminalLayerSidePanelShell({ ctx }: { ctx: SidePanelContext }) {
   const {
@@ -119,9 +139,15 @@ function TerminalLayerSidePanelTabBody({ ctx }: { ctx: SidePanelContext }) {
   } = ctx;
 
   const [resizePreviewWidth, setResizePreviewWidth] = useState<number | null>(null);
-  const shellWidth = isSidePanelOpenForCurrentTab
-    ? (resizePreviewWidth ?? sidePanelWidth)
-    : 0;
+  const isAiShellForceHidden = AI_PANEL_FORCE_HIDE_SHELL && activeSidePanelTab === 'ai';
+  const shouldRenderAiPanels = mountedAiTabIds.length > 0 && !isAiShellForceHidden;
+  const shellWidth = getTerminalSidePanelShellWidth({
+    activeSidePanelTab,
+    forceHideAiShell: AI_PANEL_FORCE_HIDE_SHELL,
+    isSidePanelOpenForCurrentTab,
+    resizePreviewWidth,
+    sidePanelWidth,
+  });
 
   const handleSidePanelResizeStart = useCallback((event: React.MouseEvent) => {
     if (!isSidePanelOpenForCurrentTab) return;
@@ -166,20 +192,22 @@ function TerminalLayerSidePanelTabBody({ ctx }: { ctx: SidePanelContext }) {
   return (
     <>
       <div
-        style={{ width: shellWidth }}
+        style={{ width: shellWidth, contain: 'layout paint style' }}
         className={cn(
           'flex-shrink-0 h-full relative z-20',
+          shellWidth === 0 && 'overflow-hidden',
           sidePanelPosition === 'right' && 'order-last',
         )}
         data-section="terminal-side-panel-shell"
         data-side-panel-position={sidePanelPosition}
       >
-        {isSidePanelOpenForCurrentTab && (
+        {isSidePanelOpenForCurrentTab && !isAiShellForceHidden && (
           <div
             className={cn(
               'absolute top-0 h-full w-2 cursor-ew-resize z-30',
               sidePanelPosition === 'left' ? 'right-[-3px]' : 'left-[-3px]',
             )}
+            data-section="terminal-side-panel-resizer"
             onMouseDown={handleSidePanelResizeStart}
           />
         )}
@@ -190,7 +218,8 @@ function TerminalLayerSidePanelTabBody({ ctx }: { ctx: SidePanelContext }) {
             isSidePanelOpenForCurrentTab && sidePanelPosition === 'right' && 'border-l',
             !isSidePanelOpenForCurrentTab && 'pointer-events-none',
           )}
-          data-section="terminal-side-panel"
+          data-section={isSidePanelOpenForCurrentTab ? 'terminal-side-panel' : undefined}
+          data-open={isSidePanelOpenForCurrentTab ? 'true' : 'false'}
           data-side-panel-tab={isSidePanelOpenForCurrentTab ? (activeSidePanelTab ?? undefined) : undefined}
           style={{
             ['--terminal-sidepanel-bg' as never]: resolvedPreviewTheme.colors.background,
@@ -203,9 +232,10 @@ function TerminalLayerSidePanelTabBody({ ctx }: { ctx: SidePanelContext }) {
             borderColor: 'var(--terminal-sidepanel-border)',
           }}
         >
-          {isSidePanelOpenForCurrentTab && (
+          {isSidePanelOpenForCurrentTab && !isAiShellForceHidden && (
             <div
               className="flex h-9 items-center px-1.5 py-1 flex-shrink-0 gap-1"
+              data-section="terminal-side-panel-tabs"
               style={{
                 borderBottom: '1px solid var(--terminal-sidepanel-border)',
               }}
@@ -343,7 +373,7 @@ function TerminalLayerSidePanelTabBody({ ctx }: { ctx: SidePanelContext }) {
               </Tooltip>
             </div>
           )}
-          <div className="flex-1 min-h-0 relative">
+          <div className="flex-1 min-h-0 relative" data-section="terminal-side-panel-content">
             {mountedSftpTabIds.map((tabId: string) => {
               const isVisibleSftpPanel = activeTabId === tabId && activeSidePanelTab === 'sftp';
               const storedSftpHost = sftpHostForTab.get(tabId) ?? null;
@@ -445,7 +475,7 @@ function TerminalLayerSidePanelTabBody({ ctx }: { ctx: SidePanelContext }) {
               );
             })}
 
-            {mountedAiTabIds.length > 0 && (
+            {shouldRenderAiPanels && (
               <AISidePanelStateRoot validAIScopeTargetIds={validAIScopeTargetIds}>
                 <AIChatPanelsHost
                   mountedTabIds={mountedAiTabIds}

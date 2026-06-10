@@ -18,9 +18,10 @@ import SettingsApplicationTab from "./SettingsApplicationTab";
 import SettingsAppearanceTab from "./settings/tabs/SettingsAppearanceTab";
 import SettingsFileAssociationsTab from "./settings/tabs/SettingsFileAssociationsTab";
 import SettingsShortcutsTab from "./settings/tabs/SettingsShortcutsTab";
+import SettingsAITab from "./settings/tabs/SettingsAITab";
+import SettingsSyncTab from "./settings/tabs/SettingsSyncTab";
 import SettingsTerminalTab from "./settings/tabs/SettingsTerminalTab";
 import SettingsSystemTab from "./settings/tabs/SettingsSystemTab";
-const SettingsAITab = React.lazy(() => import("./settings/tabs/SettingsAITab"));
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
@@ -50,40 +51,79 @@ class AITabErrorBoundary extends React.Component<
 
 type SettingsState = ReturnType<typeof useSettingsState>;
 
-const SettingsSyncTab = React.lazy(() => import("./settings/tabs/SettingsSyncTab"));
-
 const settingsTabTriggerClassName =
     "w-full justify-start gap-2 px-3 py-2 text-sm data-[state=active]:bg-background hover:bg-background/60 rounded-md transition-colors overflow-hidden";
 const settingsTabIconClassName = "shrink-0";
 const settingsTabLabelClassName = "min-w-0 truncate";
 
-const SettingsTerminalTabContainer: React.FC<{ settings: SettingsState }> = ({ settings }) => {
+type TerminalTabSettingsProps = Pick<
+    SettingsState,
+    | 'terminalThemeId'
+    | 'setTerminalThemeId'
+    | 'followAppTerminalTheme'
+    | 'setFollowAppTerminalTheme'
+    | 'terminalThemeDarkId'
+    | 'setTerminalThemeDarkId'
+    | 'terminalThemeLightId'
+    | 'setTerminalThemeLightId'
+    | 'lightUiThemeId'
+    | 'darkUiThemeId'
+    | 'terminalFontFamilyId'
+    | 'setTerminalFontFamilyId'
+    | 'terminalFontSize'
+    | 'setTerminalFontSize'
+    | 'terminalSettings'
+    | 'updateTerminalSetting'
+    | 'workspaceFocusStyle'
+    | 'setWorkspaceFocusStyle'
+>;
+
+const SettingsTerminalTabContainer = React.memo<TerminalTabSettingsProps>(function SettingsTerminalTabContainer({
+    terminalThemeId,
+    setTerminalThemeId,
+    followAppTerminalTheme,
+    setFollowAppTerminalTheme,
+    terminalThemeDarkId,
+    setTerminalThemeDarkId,
+    terminalThemeLightId,
+    setTerminalThemeLightId,
+    lightUiThemeId,
+    darkUiThemeId,
+    terminalFontFamilyId,
+    setTerminalFontFamilyId,
+    terminalFontSize,
+    setTerminalFontSize,
+    terminalSettings,
+    updateTerminalSetting,
+    workspaceFocusStyle,
+    setWorkspaceFocusStyle,
+}) {
     const availableFonts = useAvailableFonts();
 
     return (
         <SettingsTerminalTab
-            terminalThemeId={settings.terminalThemeId}
-            setTerminalThemeId={settings.setTerminalThemeId}
-            followAppTerminalTheme={settings.followAppTerminalTheme}
-            setFollowAppTerminalTheme={settings.setFollowAppTerminalTheme}
-            terminalThemeDarkId={settings.terminalThemeDarkId}
-            setTerminalThemeDarkId={settings.setTerminalThemeDarkId}
-            terminalThemeLightId={settings.terminalThemeLightId}
-            setTerminalThemeLightId={settings.setTerminalThemeLightId}
-            lightUiThemeId={settings.lightUiThemeId}
-            darkUiThemeId={settings.darkUiThemeId}
-            terminalFontFamilyId={settings.terminalFontFamilyId}
-            setTerminalFontFamilyId={settings.setTerminalFontFamilyId}
-            terminalFontSize={settings.terminalFontSize}
-            setTerminalFontSize={settings.setTerminalFontSize}
-            terminalSettings={settings.terminalSettings}
-            updateTerminalSetting={settings.updateTerminalSetting}
+            terminalThemeId={terminalThemeId}
+            setTerminalThemeId={setTerminalThemeId}
+            followAppTerminalTheme={followAppTerminalTheme}
+            setFollowAppTerminalTheme={setFollowAppTerminalTheme}
+            terminalThemeDarkId={terminalThemeDarkId}
+            setTerminalThemeDarkId={setTerminalThemeDarkId}
+            terminalThemeLightId={terminalThemeLightId}
+            setTerminalThemeLightId={setTerminalThemeLightId}
+            lightUiThemeId={lightUiThemeId}
+            darkUiThemeId={darkUiThemeId}
+            terminalFontFamilyId={terminalFontFamilyId}
+            setTerminalFontFamilyId={setTerminalFontFamilyId}
+            terminalFontSize={terminalFontSize}
+            setTerminalFontSize={setTerminalFontSize}
+            terminalSettings={terminalSettings}
+            updateTerminalSetting={updateTerminalSetting}
             availableFonts={availableFonts}
-            workspaceFocusStyle={settings.workspaceFocusStyle}
-            setWorkspaceFocusStyle={settings.setWorkspaceFocusStyle}
+            workspaceFocusStyle={workspaceFocusStyle}
+            setWorkspaceFocusStyle={setWorkspaceFocusStyle}
         />
     );
-};
+});
 
 const SettingsAITabContainer: React.FC = () => {
     const aiState = useAIState();
@@ -331,13 +371,34 @@ const SettingsPageContent: React.FC<{ settings: SettingsState }> = ({ settings }
                             setShowOnlyUngroupedHostsInRoot={settings.setShowOnlyUngroupedHostsInRoot}
                             showSftpTab={settings.showSftpTab}
                             setShowSftpTab={settings.setShowSftpTab}
+                            showHostTreeSidebar={settings.showHostTreeSidebar}
+                            setShowHostTreeSidebar={settings.setShowHostTreeSidebar}
                             windowOpacity={settings.windowOpacity}
                             setWindowOpacity={settings.setWindowOpacity}
-                        />
+                          />
                     )}
 
                     {mountedTabs.has("terminal") && (
-                        <SettingsTerminalTabContainer settings={settings} />
+                        <SettingsTerminalTabContainer
+                            terminalThemeId={settings.terminalThemeId}
+                            setTerminalThemeId={settings.setTerminalThemeId}
+                            followAppTerminalTheme={settings.followAppTerminalTheme}
+                            setFollowAppTerminalTheme={settings.setFollowAppTerminalTheme}
+                            terminalThemeDarkId={settings.terminalThemeDarkId}
+                            setTerminalThemeDarkId={settings.setTerminalThemeDarkId}
+                            terminalThemeLightId={settings.terminalThemeLightId}
+                            setTerminalThemeLightId={settings.setTerminalThemeLightId}
+                            lightUiThemeId={settings.lightUiThemeId}
+                            darkUiThemeId={settings.darkUiThemeId}
+                            terminalFontFamilyId={settings.terminalFontFamilyId}
+                            setTerminalFontFamilyId={settings.setTerminalFontFamilyId}
+                            terminalFontSize={settings.terminalFontSize}
+                            setTerminalFontSize={settings.setTerminalFontSize}
+                            terminalSettings={settings.terminalSettings}
+                            updateTerminalSetting={settings.updateTerminalSetting}
+                            workspaceFocusStyle={settings.workspaceFocusStyle}
+                            setWorkspaceFocusStyle={settings.setWorkspaceFocusStyle}
+                        />
                     )}
 
                     {mountedTabs.has("shortcuts") && (
@@ -361,9 +422,7 @@ const SettingsPageContent: React.FC<{ settings: SettingsState }> = ({ settings }
                     )}
 
                     {mountedTabs.has("sync") && (
-                        <React.Suspense fallback={null}>
-                            <SettingsSyncTabWithVault onSettingsApplied={settings.rehydrateAllFromStorage} />
-                        </React.Suspense>
+                        <SettingsSyncTabWithVault onSettingsApplied={settings.rehydrateAllFromStorage} />
                     )}
 
                     {mountedTabs.has("system") && (
