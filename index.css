@@ -138,6 +138,14 @@
   animation: top-tab-enter 220ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
+.settings-window button:not(:disabled),
+.settings-window [role="button"]:not([aria-disabled="true"]),
+.settings-window [role="switch"]:not([aria-disabled="true"]),
+.settings-window [data-slot="tabs-trigger"]:not([data-disabled]),
+.settings-window [data-slot="select-trigger"]:not([data-disabled]) {
+  cursor: pointer;
+}
+
 .top-tab-root-label {
   display: inline-block;
   overflow: hidden;
