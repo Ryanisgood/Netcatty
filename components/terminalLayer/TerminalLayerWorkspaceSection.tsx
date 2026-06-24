@@ -20,6 +20,7 @@ function TerminalLayerWorkspaceSectionInner({ ctx }: { ctx: WorkspaceContext }) 
     sessionHostsMap,
     sessionChainHostsMap,
     sessionSudoAutofillPasswordsMap,
+    resolvedSessionHostIds,
     workspaceById,
     workspaceRectsById,
     isTerminalLayerVisible,
@@ -40,6 +41,8 @@ function TerminalLayerWorkspaceSectionInner({ ctx }: { ctx: WorkspaceContext }) 
     customAccent,
     terminalSettings,
     hotkeyScheme,
+    disableTerminalFontZoom,
+    restoreTerminalCwd,
     keyBindings,
     resizing,
     isComposeBarOpen,
@@ -49,7 +52,12 @@ function TerminalLayerWorkspaceSectionInner({ ctx }: { ctx: WorkspaceContext }) 
     handleTerminalFontSizeChange,
     handleOpenSftp,
     handleTerminalCwdChange,
+    handleTerminalTitleChange,
+    handleTerminalBell,
+    handleTerminalOutput,
     handleOpenScripts,
+    handleOpenHistory,
+    handleOpenSystem,
     handleOpenTheme,
     handleCloseSession,
     handleStatusChange,
@@ -66,17 +74,31 @@ function TerminalLayerWorkspaceSectionInner({ ctx }: { ctx: WorkspaceContext }) 
     handleBroadcastInput,
     handleToggleWorkspaceComposeBar,
     handleSnippetExecutorChange,
+    handleProgrammaticCommandLogRewriteChange,
     handleAddSelectionToAI,
     activeResizers,
     activeWorkspace,
+    composeBarThemeColors,
     findSplitNode,
+    focusedSessionId,
+    handleComposeSend,
+    handleSnippetFromPanel,
+    refocusTerminalSession,
+    setIsComposeBarOpen,
     setResizing,
+    TerminalComposeBar,
     Array,
     cn,
+    onStartSessionRename,
+    onRemoveSessionFromWorkspace,
+    onReorderTabs,
+    onStartSessionDrag,
+    onEndSessionDrag,
   } = ctx;
 
   return (
-    <div ref={workspaceInnerRef} className="overflow-hidden relative flex-1">
+    <div className="flex-1 min-h-0 flex flex-col">
+    <div ref={workspaceInnerRef} className="flex-1 min-h-0 overflow-hidden relative">
         {draggingSessionId && !isFocusMode && (
           <div
             ref={workspaceOverlayRef}
@@ -119,6 +141,7 @@ function TerminalLayerWorkspaceSectionInner({ ctx }: { ctx: WorkspaceContext }) 
           sessionHostsMap={sessionHostsMap}
           sessionChainHostsMap={sessionChainHostsMap}
           sessionSudoAutofillPasswordsMap={sessionSudoAutofillPasswordsMap}
+          resolvedSessionHostIds={resolvedSessionHostIds}
           workspaceById={workspaceById}
           workspaceRectsById={workspaceRectsById}
           isTerminalLayerVisible={isTerminalLayerVisible}
@@ -139,6 +162,8 @@ function TerminalLayerWorkspaceSectionInner({ ctx }: { ctx: WorkspaceContext }) 
           customAccent={customAccent}
           terminalSettings={terminalSettings}
           hotkeyScheme={hotkeyScheme}
+          disableTerminalFontZoom={disableTerminalFontZoom}
+          restoreTerminalCwd={restoreTerminalCwd}
           keyBindings={keyBindings}
           isResizing={!!resizing}
           isComposeBarOpen={isComposeBarOpen}
@@ -148,7 +173,12 @@ function TerminalLayerWorkspaceSectionInner({ ctx }: { ctx: WorkspaceContext }) 
           onTerminalFontSizeChange={handleTerminalFontSizeChange}
           onOpenSftp={handleOpenSftp}
           onTerminalCwdChange={handleTerminalCwdChange}
+          onTerminalTitleChange={handleTerminalTitleChange}
+          onTerminalBell={handleTerminalBell}
+          onTerminalOutput={handleTerminalOutput}
           onOpenScripts={handleOpenScripts}
+          onOpenHistory={handleOpenHistory}
+          onOpenSystem={handleOpenSystem}
           onOpenTheme={handleOpenTheme}
           onCloseSession={handleCloseSession}
           onStatusChange={handleStatusChange}
@@ -165,7 +195,13 @@ function TerminalLayerWorkspaceSectionInner({ ctx }: { ctx: WorkspaceContext }) 
           onBroadcastInput={handleBroadcastInput}
           onToggleWorkspaceComposeBar={handleToggleWorkspaceComposeBar}
           onSnippetExecutorChange={handleSnippetExecutorChange}
+          onProgrammaticCommandLogRewriteChange={handleProgrammaticCommandLogRewriteChange}
           onAddSelectionToAI={handleAddSelectionToAI}
+          onStartSessionRename={onStartSessionRename}
+          onRemoveSessionFromWorkspace={onRemoveSessionFromWorkspace}
+          onReorderTabs={onReorderTabs}
+          onStartSessionDrag={onStartSessionDrag}
+          onEndSessionDrag={onEndSessionDrag}
         />
         {!isFocusMode && activeResizers.map((handle: any) => {
           const isVertical = handle.direction === 'vertical';
@@ -218,6 +254,21 @@ function TerminalLayerWorkspaceSectionInner({ ctx }: { ctx: WorkspaceContext }) 
             </div>
           );
         })}
+    </div>
+
+      {activeWorkspace && isComposeBarOpen && (
+        <TerminalComposeBar
+          onSend={handleComposeSend}
+          onSnippetClick={(snippet) => void handleSnippetFromPanel(snippet)}
+          snippets={snippets}
+          onClose={() => {
+            setIsComposeBarOpen(false);
+            refocusTerminalSession(focusedSessionId);
+          }}
+          isBroadcastEnabled={isBroadcastEnabled?.(activeWorkspace.id)}
+          themeColors={composeBarThemeColors}
+        />
+      )}
     </div>
   );
 }

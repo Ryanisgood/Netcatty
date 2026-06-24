@@ -370,6 +370,18 @@ export const HostDetailsAdvancedSections: React.FC<HostDetailsAdvancedSectionsPr
           icon={<TerminalSquare size={14} className="text-muted-foreground" />}
           title={t("hostDetails.section.terminalBehavior")}
         >
+          <ToggleRow
+            label={t("hostDetails.lineTimestamps")}
+            hint={t("hostDetails.lineTimestamps.desc")}
+            enabled={!!form.showLineTimestamps}
+            onToggle={() => update("showLineTimestamps", !form.showLineTimestamps)}
+          />
+          <ToggleRow
+            label={t("hostDetails.disableDynamicTabTitle")}
+            hint={t("hostDetails.disableDynamicTabTitle.desc")}
+            enabled={!!form.disableDynamicTabTitle}
+            onToggle={() => update("disableDynamicTabTitle", !form.disableDynamicTabTitle)}
+          />
           <HostDetailsSettingRow label={t("hostDetails.backspaceBehavior")}>
             <Select
               value={form.backspaceBehavior ?? "default"}

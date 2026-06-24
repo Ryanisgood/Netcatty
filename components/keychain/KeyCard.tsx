@@ -27,6 +27,7 @@ interface KeyCardProps {
     viewMode: 'grid' | 'list';
     isSelected: boolean;
     isMac: boolean;
+    reorderProps?: React.HTMLAttributes<HTMLDivElement>;
     onClick: () => void;
     onEdit: () => void;
     onExport: () => void;
@@ -39,6 +40,7 @@ export const KeyCard: React.FC<KeyCardProps> = ({
     viewMode,
     isSelected,
     isMac,
+    reorderProps,
     onClick,
     onEdit,
     onExport,
@@ -50,25 +52,28 @@ export const KeyCard: React.FC<KeyCardProps> = ({
         <ContextMenu>
             <ContextMenuTrigger asChild>
                 <div
+                    {...reorderProps}
                     className={cn(
-                        "group cursor-pointer",
+                        reorderProps && "vault-drop-indicator-row",
+                        "group cursor-pointer min-w-0 w-full max-w-full",
                         viewMode === 'grid'
                             ? "soft-card elevate rounded-xl h-[68px] px-3 py-2"
                             : "h-14 px-3 py-2 hover:bg-secondary/60 rounded-lg transition-colors",
-                        isSelected && "ring-2 ring-primary"
+                        isSelected && "ring-2 ring-primary",
+                        reorderProps?.className,
                     )}
                     onClick={onClick}
                 >
-                    <div className="flex items-center gap-3 h-full">
+                    <div className="flex items-center gap-3 h-full min-w-0">
                         <VaultEntityIcon
                             className={keyItem.certificate
                               ? vaultCertificateIconClass
                               : vaultKeyIconClass}
                             icon={getKeyIcon(keyItem)}
                         />
-                        <div className="min-w-0 flex-1">
-                            <div className="text-sm font-semibold truncate">{keyItem.label}</div>
-                            <div className="text-[11px] font-mono text-muted-foreground truncate">
+                        <div className="min-w-0 flex-1 basis-0 overflow-hidden">
+                            <div className="block max-w-full truncate text-sm font-semibold">{keyItem.label}</div>
+                            <div className="block max-w-full truncate text-[11px] font-mono text-muted-foreground">
                                 Type {getKeyTypeDisplay(keyItem, isMac)}
                             </div>
                         </div>

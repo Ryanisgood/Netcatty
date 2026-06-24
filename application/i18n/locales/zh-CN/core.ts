@@ -29,6 +29,7 @@ export const zhCNCoreMessages: Messages = {
   'common.right': '右侧',
   'common.more': '更多',
   'common.selectAHost': '选择主机',
+  'sort.manual': '手动顺序',
   'sort.az': 'A-z',
   'sort.za': 'Z-a',
   'sort.newest': '从新到旧',
@@ -126,6 +127,17 @@ export const zhCNCoreMessages: Messages = {
   'settings.update.lastCheckedPrefix': '上次检查：',
   'settings.update.autoUpdateEnabled': '自动更新',
   'settings.update.autoUpdateEnabledDesc': '有新版本时自动检查并下载更新。',
+
+  // Settings > Session Restore
+  'settings.sessionRestore.title': '会话恢复',
+  'settings.sessionRestore.restorePreviousSession': '恢复上次的标签页和工作区',
+  'settings.sessionRestore.restorePreviousSessionDesc': '启动时重新打开上次的终端标签页和工作区布局。',
+  'settings.sessionRestore.restoreTerminalCwd': '恢复终端工作目录',
+  'settings.sessionRestore.restoreTerminalCwdDesc': '重新连接恢复的终端时，尝试回到上次记录的目录；失败时不会阻塞连接。',
+  'terminal.restore.placeholder.title': '已恢复的会话',
+  'terminal.restore.placeholder.desc': '此终端当前已断开。准备好后可以重新连接，为这个标签页启动新的 shell。',
+  'terminal.restore.placeholder.reconnect': '重新连接',
+  'terminal.restore.cwdLog': '正在恢复工作目录：{cwd}',
 
   // Settings > Session Logs
   'settings.sessionLogs.title': '会话日志',
@@ -250,9 +262,9 @@ export const zhCNCoreMessages: Messages = {
   'settings.appearance.themeColor.dark': '深色主题',
   'settings.appearance.customCss': '自定义 CSS',
   'settings.appearance.customCss.desc':
-    '使用自定义 CSS 个性化界面，修改会立即生效。主要 UI 区块都暴露了 [data-section="..."] 属性供你定位，比如：snippets-panel、host-details-panel、group-details-panel、serial-host-details-panel、ai-chat-panel、vault-sidebar、vault-main、vault-hosts-header、vault-host-list、vault-view、terminal-workspace、terminal-workspace-sidebar（Focus 模式终端列表）、terminal-host-tree-sidebar、terminal-host-tree-sidebar-content、terminal-host-tree-sidebar-row、terminal-side-panel（SFTP/脚本/主题/AI 侧栏，打开时生效）、terminal-side-panel-tabs、terminal-side-panel-content、terminal-sftp-panel、terminal-sftp-host-header、terminal-sftp-pane、terminal-sftp-toolbar、terminal-sftp-path、terminal-sftp-filter-bar、terminal-sftp-list、terminal-sftp-list-header、terminal-sftp-list-row、terminal-sftp-tree、terminal-sftp-tree-row、terminal-sftp-transfer-queue、terminal-sftp-transfer-row、terminal-split-pane、terminal-split-resizer、top-tabs。',
+    '使用自定义 CSS 个性化界面，修改会立即生效。主要 UI 区块都暴露了 [data-section="..."] 属性供你定位，比如：snippets-panel、host-details-panel、group-details-panel、serial-host-details-panel、ai-chat-panel、vault-sidebar、vault-main、vault-hosts-header、vault-host-list、vault-view、terminal-workspace、terminal-workspace-sidebar（Focus 模式终端列表）、terminal-host-tree-sidebar、terminal-host-tree-sidebar-content、terminal-host-tree-sidebar-row、terminal-side-panel（SFTP/脚本/主题/AI 侧栏，打开时生效）、terminal-side-panel-tabs、terminal-side-panel-content、terminal-sftp-panel、terminal-sftp-host-header、terminal-sftp-pane、terminal-sftp-toolbar、terminal-sftp-path、terminal-sftp-filter-bar、terminal-sftp-list、terminal-sftp-list-header、terminal-sftp-list-row、terminal-sftp-tree、terminal-sftp-tree-row、terminal-sftp-transfer-queue、terminal-sftp-transfer-row、terminal-split-pane、terminal-split-resizer、top-tabs、top-tabs-host-tree-toggle、top-tabs-quick-switcher-toggle。',
   'settings.appearance.customCss.placeholder':
-    '/* 示例 — 由于 Tailwind 优先级较高，需要使用 !important */\n\n/* SFTP / 操作侧栏边框（关闭侧栏后不会残留） */\n[data-section="terminal-side-panel"] {\n  border: 2px solid #00c851 !important;\n  border-radius: 6px !important;\n}\n\n/* 修改整个操作侧栏背景，而不只是顶部标签 */\n[data-section="terminal-side-panel"],\n[data-section="terminal-side-panel-tabs"],\n[data-section="terminal-side-panel-content"],\n[data-section="terminal-sftp-panel"],\n[data-section="terminal-sftp-pane"],\n[data-section="terminal-sftp-list"],\n[data-section="terminal-sftp-tree"],\n[data-section="terminal-sftp-transfer-queue"] {\n  background-color: #1c384a !important;\n}\n\n/* 修改选中的 SFTP 文件行 */\n[data-section="terminal-sftp-list-row"][data-selected="true"] {\n  background-color: #00c851 !important;\n  color: #001b10 !important;\n}\n\n/* 加粗分屏分割线 */\n[data-section="terminal-split-resizer-bar"] {\n  background-color: hsl(var(--primary)) !important;\n  transform: scale(2) !important;\n}\n\n/* 高亮当前聚焦的分屏 */\n[data-section="terminal-split-pane"][data-focused="true"] {\n  outline: 2px solid hsl(var(--primary)) !important;\n  outline-offset: -2px;\n}\n\n/* 也可在 设置 → 终端 → 工作区聚焦指示 → 聚焦窗格显示边框 */',
+    '/* 示例 — 由于 Tailwind 优先级较高，需要使用 !important */\n\n/* 隐藏顶部标签栏里的主机列表开关 */\n[data-section="top-tabs-host-tree-toggle"] {\n  width: 0 !important;\n  opacity: 0 !important;\n  pointer-events: none !important;\n}\n\n/* 隐藏打开快速切换器的加号按钮 */\n[data-section="top-tabs-quick-switcher-toggle"] {\n  display: none !important;\n}\n\n/* SFTP / 操作侧栏边框（关闭侧栏后不会残留） */\n[data-section="terminal-side-panel"] {\n  border: 2px solid #00c851 !important;\n  border-radius: 6px !important;\n}\n\n/* 修改整个操作侧栏背景，而不只是顶部标签 */\n[data-section="terminal-side-panel"],\n[data-section="terminal-side-panel-tabs"],\n[data-section="terminal-side-panel-content"],\n[data-section="terminal-sftp-panel"],\n[data-section="terminal-sftp-pane"],\n[data-section="terminal-sftp-list"],\n[data-section="terminal-sftp-tree"],\n[data-section="terminal-sftp-transfer-queue"] {\n  background-color: #1c384a !important;\n}\n\n/* 修改选中的 SFTP 文件行 */\n[data-section="terminal-sftp-list-row"][data-selected="true"] {\n  background-color: #00c851 !important;\n  color: #001b10 !important;\n}\n\n/* 加粗分屏分割线 */\n[data-section="terminal-split-resizer-bar"] {\n  background-color: hsl(var(--primary)) !important;\n  transform: scale(2) !important;\n}\n\n/* 高亮当前聚焦的分屏 */\n[data-section="terminal-split-pane"][data-focused="true"] {\n  outline: 2px solid hsl(var(--primary)) !important;\n  outline-offset: -2px;\n}\n\n/* 也可在 设置 → 终端 → 工作区聚焦指示 → 聚焦窗格显示边框 */',
   'settings.appearance.language': '语言',
   'settings.appearance.language.desc': '选择界面语言',
   'settings.appearance.uiFont': '界面字体',
@@ -309,7 +321,7 @@ export const zhCNCoreMessages: Messages = {
   'sync.autoSync.emptyVaultConflict.restoreDesc': '推荐 — 从云端备份恢复主机、密钥和代码片段',
   'sync.autoSync.emptyVaultConflict.keepEmpty': '保持为空',
   'sync.autoSync.emptyVaultConflict.keepEmptyDesc': '从头开始，使用空的主机库',
-  'sync.autoSync.emptyVaultConflict.cloudSummary': '{hosts} 台主机，{keys} 个密钥，{snippets} 个代码片段，{proxyProfiles} 个代理',
+  'sync.autoSync.emptyVaultConflict.cloudSummary': '{hosts} 台主机，{keys} 个密钥，{snippets} 个代码片段，{notes} 条笔记，{proxyProfiles} 个代理',
   'sync.autoSync.emptyVaultManual': '无法同步：本地 vault 为空。请先从本地备份恢复，或在同步面板里使用"强制推送"。',
 
   'sync.blocked.title': '同步已暂停',
@@ -346,6 +358,7 @@ export const zhCNCoreMessages: Messages = {
   'vault.nav.proxies': '代理',
   'vault.nav.portForwarding': '端口转发',
   'vault.nav.snippets': '代码片段',
+  'vault.nav.notes': '笔记',
   'vault.nav.knownHosts': '已知主机',
   'vault.nav.logs': '日志',
 
@@ -446,6 +459,7 @@ export const zhCNCoreMessages: Messages = {
   'vault.hosts.errors.nameRequired': '主机名称不能为空。',
   'vault.hosts.empty.title': '设置你的主机',
   'vault.hosts.empty.desc': '保存主机以快速连接到你的服务器、虚拟机和容器。',
+  'deepLink.ssh.invalid': '无效的 ssh:// 链接',
 
   // Vault import
   'vault.import.title': '添加数据到你的 Vault',
@@ -572,6 +586,9 @@ export const zhCNCoreMessages: Messages = {
   'sftp.moveTo.pathNotFound': '目录不存在或无法访问',
   'sftp.context.download': '下载',
   'sftp.context.copyToOtherPane': '复制到另一侧',
+  'sftp.copyCurrentPath': '复制当前路径',
+  'sftp.copyCurrentPath.success': '已复制当前路径',
+  'sftp.copyCurrentPath.error': '无法复制当前路径',
   'sftp.viewMode.label': '视图模式',
   'sftp.viewMode.list': '列表视图',
   'sftp.viewMode.tree': '树形视图',

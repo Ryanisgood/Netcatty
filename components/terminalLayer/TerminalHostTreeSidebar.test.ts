@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import type { Host } from '../../types';
 
 const storage = new Map<string, string>();
 Object.defineProperty(globalThis, 'localStorage', {
@@ -15,16 +16,20 @@ Object.defineProperty(globalThis, 'localStorage', {
 const {
   applyTerminalHostTreeHostRename,
   shouldShowTerminalHostHoverCard,
+  getTerminalHostTreeHiddenSurfaceShellWidth,
   getTerminalHostTreeInitialLayoutWidth,
   getTerminalHostTreeLayoutTargetWidth,
   getTerminalHostTreeMeasuredLayoutWidth,
+  getTerminalHostTreeReservedLayoutWidth,
   getTerminalHostTreeSidebarPanelStyle,
   getTerminalHostTreeSidebarShellStyle,
+  shouldCompactTerminalHostTreeToolbar,
   isTerminalHostTreeSidebarVisible,
+  shouldShowTerminalHostTreeExpandCollapseControls,
 } = await import('./TerminalHostTreeSidebar.tsx');
 const { TERMINAL_HOST_TREE_WIDTH_TRANSITION } = await import('../../application/state/terminalHostTreeAnimation.ts');
 
-const host = {
+const host: Host = {
   id: 'host-1',
   label: 'Ubuntu',
   hostname: '10.2.0.124',
@@ -34,7 +39,7 @@ const host = {
   tags: [],
   os: 'linux',
   createdAt: 1,
-} as const;
+};
 
 test('host tree sidebar is visually hidden when disabled even if it remains open', () => {
   assert.equal(isTerminalHostTreeSidebarVisible(true, false), false);
@@ -54,6 +59,12 @@ test('host tree layout target follows visible surface state', () => {
   assert.equal(getTerminalHostTreeLayoutTargetWidth(false, 240), 0);
 });
 
+test('host tree hidden surface shell keeps the open width for return navigation', () => {
+  assert.equal(getTerminalHostTreeHiddenSurfaceShellWidth(true, true, 240), 240);
+  assert.equal(getTerminalHostTreeHiddenSurfaceShellWidth(false, true, 240), 0);
+  assert.equal(getTerminalHostTreeHiddenSurfaceShellWidth(true, false, 240), 0);
+});
+
 test('host tree layout starts collapsed so first mount can animate open', () => {
   assert.equal(getTerminalHostTreeInitialLayoutWidth(), 0);
 });
@@ -68,6 +79,34 @@ test('host tree layout sync can sample the current shell width before targeting'
   assert.equal(getTerminalHostTreeMeasuredLayoutWidth(null, 240), 240);
 });
 
+test('host tree layout reserves target width while opening to keep content out of the sidebar', () => {
+  assert.equal(getTerminalHostTreeReservedLayoutWidth({
+    getBoundingClientRect: () => ({ width: 84 }),
+  } as unknown as HTMLElement, 240, true), 240);
+  assert.equal(getTerminalHostTreeReservedLayoutWidth({
+    getBoundingClientRect: () => ({ width: 260 }),
+  } as unknown as HTMLElement, 240, true), 260);
+  assert.equal(getTerminalHostTreeReservedLayoutWidth({
+    getBoundingClientRect: () => ({ width: 84 }),
+  } as unknown as HTMLElement, 0, false), 84);
+});
+
+test('host tree expand and collapse controls only render when they can act', () => {
+  assert.equal(shouldShowTerminalHostTreeExpandCollapseControls(1, false, false, false), true);
+  assert.equal(shouldShowTerminalHostTreeExpandCollapseControls(0, false, false, false), false);
+  assert.equal(shouldShowTerminalHostTreeExpandCollapseControls(1, true, false, false), false);
+  assert.equal(shouldShowTerminalHostTreeExpandCollapseControls(1, false, true, false), false);
+  assert.equal(shouldShowTerminalHostTreeExpandCollapseControls(1, false, false, true), false);
+});
+
+test('host tree toolbar compacts low-priority actions near the minimum width', () => {
+  assert.equal(shouldCompactTerminalHostTreeToolbar(132), true);
+  assert.equal(shouldCompactTerminalHostTreeToolbar(156), true);
+  assert.equal(shouldCompactTerminalHostTreeToolbar(184), false);
+  assert.equal(shouldCompactTerminalHostTreeToolbar(220), false);
+  assert.equal(shouldCompactTerminalHostTreeToolbar(0), false);
+});
+
 test('host tree layout width follows the animated shell via ResizeObserver', () => {
   const source = readFileSync(new URL('./TerminalHostTreeSidebar.tsx', import.meta.url), 'utf8');
 
@@ -76,11 +115,13 @@ test('host tree layout width follows the animated shell via ResizeObserver', () 
   assert.doesNotMatch(source, /performance\.now\(\)/);
 });
 
-test('host tree collapses instantly when hidden behind root pages', () => {
+test('host tree keeps shell width while hidden behind root pages', () => {
   const source = readFileSync(new URL('./TerminalHostTreeSidebar.tsx', import.meta.url), 'utf8');
 
   assert.match(source, /isResizing \|\| !surfaceVisible/);
-  assert.match(source, /if \(!surfaceVisible\) \{\s*setShellWidth\(0\);\s*terminalHostTreeStore\.setLayoutWidth\(0\);/);
+  assert.match(source, /const hiddenSurfaceShellWidth = getTerminalHostTreeHiddenSurfaceShellWidth/);
+  assert.match(source, /if \(!surfaceVisible\) \{\s*setShellWidth\(hiddenSurfaceShellWidth\);\s*terminalHostTreeStore\.setLayoutWidth\(0\);/);
+  assert.doesNotMatch(source, /if \(!surfaceVisible\) \{\s*setShellWidth\(0\);/);
 });
 
 test('host tree sidebar memo tracks surface visibility changes', () => {
@@ -120,6 +161,30 @@ test('host tree sidebar clips the panel instead of fading it out while closing',
   }).opacity, 1);
 });
 
+test('host tree sidebar colors can be overridden by immediate preview styles', () => {
+  const theme = {
+    termBg: 'var(--terminal-host-tree-bg, #000000)',
+    termFg: 'var(--terminal-host-tree-fg, #ffffff)',
+    mutedFg: 'var(--terminal-host-tree-muted, #999999)',
+    separator: 'var(--terminal-host-tree-separator, #333333)',
+    rowHoverBg: 'var(--terminal-host-tree-hover-bg, #111111)',
+    rowActiveBg: 'var(--terminal-host-tree-active-bg, #222222)',
+    rowDropBg: 'var(--terminal-host-tree-drop-bg, #444444)',
+    folderFg: 'var(--terminal-host-tree-folder-fg, #cccccc)',
+  };
+
+  const style = getTerminalHostTreeSidebarPanelStyle({
+    isVisible: true,
+    displayWidth: 240,
+    panelTransition: 'border-color 220ms ease-out',
+    theme,
+  });
+
+  assert.equal(style.backgroundColor, theme.termBg);
+  assert.equal(style.color, theme.termFg);
+  assert.equal(style.borderRight, `1px solid ${theme.separator}`);
+});
+
 test('host tree host inline rename trims and updates the matching host label', () => {
   const result = applyTerminalHostTreeHostRename([host], 'host-1', '  web-01  ');
 
@@ -145,7 +210,7 @@ test('host tree hover card is hidden while the same host is inline editing', () 
 test('host tree hover card renders markdown notes and keeps host details out of the header subtitle', () => {
   const source = readFileSync(new URL('./TerminalHostTreeSidebar.tsx', import.meta.url), 'utf8');
 
-  assert.match(source, /<MessageResponse/);
+  assert.match(source, /<LazyMessageResponse/);
   assert.match(source, /size="sm"/);
   assert.match(source, /items-center gap-2/);
   assert.match(source, /className="rounded"/);

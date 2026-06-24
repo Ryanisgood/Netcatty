@@ -17,6 +17,7 @@ import {
   LayoutGrid,
   List,
   Network,
+  NotebookText,
   Pin,
   Plug,
   Plus,
@@ -50,6 +51,11 @@ import {
 } from "../domain/host";
 import { exportHostsToCsvWithStats } from "../domain/vaultImport";
 import {
+  reorderVaultItems,
+  reorderVaultStrings,
+  type VaultOrderPosition,
+} from "../domain/vaultOrder";
+import {
   STORAGE_KEY_VAULT_HOSTS_SORT_MODE,
   STORAGE_KEY_VAULT_HOSTS_TREE_EXPANDED,
   STORAGE_KEY_VAULT_HOSTS_VIEW_MODE,
@@ -70,6 +76,7 @@ import {
   SSHKey,
   ShellHistoryEntry,
   Snippet,
+  VaultNote,
 } from "../types";
 import { AppLogo } from "./AppLogo";
 import { connectHostsStaggered } from "./connectHostsStaggered";
@@ -77,14 +84,11 @@ import { DistroAvatar } from "./DistroAvatar";
 import GroupDetailsPanel from "./GroupDetailsPanel";
 import HostDetailsPanel from "./HostDetailsPanel";
 import { HostTreeView } from "./HostTreeView";
-import KeychainManager from "./KeychainManager";
-import PortForwarding from "./PortForwardingNew";
-import ProxyProfilesManager from "./ProxyProfilesManager";
 import QuickConnectWizard from "./QuickConnectWizard";
 import { isQuickConnectInput, parseQuickConnectInputWithWarnings } from "../domain/quickConnect";
 import SerialConnectModal from "./SerialConnectModal";
 import SerialHostDetailsPanel from "./SerialHostDetailsPanel";
-import SnippetsManager from "./SnippetsManager";
+import { NotesManager } from "./notes/NotesManager";
 import { ImportVaultDialog } from "./vault/ImportVaultDialog";
 import { HostTreeGroupDeleteDialog } from "./host/HostTreeGroupDeleteDialog";
 import { useHostTreeInlineGroupActions } from "./vault/useHostTreeInlineGroupActions";
@@ -122,8 +126,34 @@ import { useVaultGroupDragHandlers } from "./vault/useVaultGroupDragHandlers";
 
 const LazyProtocolSelectDialog = lazy(() => import("./ProtocolSelectDialog"));
 const LazyConnectionLogsManager = lazy(() => import("./ConnectionLogsManager"));
+const KeychainManager = lazy(() => import("./KeychainManager"));
+const PortForwarding = lazy(() => import("./PortForwardingNew"));
+const ProxyProfilesManager = lazy(() => import("./ProxyProfilesManager"));
+const SnippetsManager = lazy(() => import("./SnippetsManager"));
 
-export type VaultSection = "hosts" | "keys" | "proxies" | "snippets" | "port" | "knownhosts" | "logs";
+export type VaultSection = "hosts" | "keys" | "proxies" | "snippets" | "notes" | "port" | "knownhosts" | "logs";
+
+const haveSameHostOrderResult = (previous: Host[], next: Host[]) => {
+  if (previous.length !== next.length) return false;
+  return next.every((host, index) => {
+    const current = previous[index];
+    return (
+      current?.id === host.id &&
+      current.order === host.order &&
+      current.group === host.group &&
+      current.label === host.label &&
+      current.managedSourceId === host.managedSourceId
+    );
+  });
+};
+
+const haveSameGroupConfigs = (previous: GroupConfig[], next: GroupConfig[]) => {
+  if (previous.length !== next.length) return false;
+  return next.every((config, index) => {
+    const current = previous[index];
+    return current?.path === config.path && current.order === config.order;
+  });
+};
 
 const VAULT_SIDEBAR_MIN_WIDTH = 56;
 const VAULT_SIDEBAR_DEFAULT_WIDTH = 208;
@@ -131,6 +161,7 @@ const VAULT_SIDEBAR_MAX_WIDTH = 320;
 const VAULT_SIDEBAR_LABEL_THRESHOLD = 132;
 
 const isSortMode = (value: string): value is SortMode =>
+  value === "manual" ||
   value === "az" ||
   value === "za" ||
   value === "newest" ||
@@ -145,6 +176,8 @@ interface VaultViewProps {
   proxyProfiles: ProxyProfile[];
   snippets: Snippet[];
   snippetPackages: string[];
+  notes: VaultNote[];
+  noteGroups: string[];
   customGroups: string[];
   knownHosts: KnownHost[];
   shellHistory: ShellHistoryEntry[];
@@ -161,6 +194,7 @@ interface VaultViewProps {
   onConnectSerial?: (config: SerialConfig, options?: { charset?: string }) => void;
   onDeleteHost: (id: string) => void;
   onConnect: (host: Host) => void;
+  onOpenHostFromNote?: (host: Host, source?: { noteId: string }) => void;
   onUpdateHosts: (hosts: Host[]) => void;
   onUpdateKeys: (keys: SSHKey[]) => void;
   onImportOrReuseKey: (draft: Partial<SSHKey>) => SSHKey;
@@ -168,6 +202,8 @@ interface VaultViewProps {
   onUpdateProxyProfiles: (profiles: ProxyProfile[]) => void;
   onUpdateSnippets: (snippets: Snippet[]) => void;
   onUpdateSnippetPackages: (pkgs: string[]) => void;
+  onUpdateNotes: (notes: VaultNote[]) => void;
+  onUpdateNoteGroups: (groups: string[]) => void;
   onUpdateCustomGroups: (groups: string[]) => void;
   onUpdateKnownHosts: (knownHosts: KnownHost[]) => void;
   onUpdateManagedSources: (managedSources: ManagedSource[]) => void;
@@ -187,6 +223,8 @@ interface VaultViewProps {
   // Optional: navigate to a specific section on mount or when changed
   navigateToSection?: VaultSection | null;
   onNavigateToSectionHandled?: () => void;
+  deepLinkHostDraft?: Host | null;
+  onDeepLinkHostDraftHandled?: () => void;
   terminalSettings?: { keepaliveInterval: number; keepaliveCountMax: number };
 }
 
@@ -197,6 +235,8 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
   proxyProfiles,
   snippets,
   snippetPackages,
+  notes,
+  noteGroups,
   customGroups,
   knownHosts,
   shellHistory,
@@ -213,6 +253,7 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
   onConnectSerial,
   onDeleteHost,
   onConnect,
+  onOpenHostFromNote,
   onUpdateHosts,
   onUpdateKeys,
   onImportOrReuseKey,
@@ -220,6 +261,8 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
   onUpdateProxyProfiles,
   onUpdateSnippets,
   onUpdateSnippetPackages,
+  onUpdateNotes,
+  onUpdateNoteGroups,
   onUpdateCustomGroups,
   onUpdateKnownHosts,
   onUpdateManagedSources,
@@ -238,6 +281,8 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
   showOnlyUngroupedHostsInRoot,
   navigateToSection,
   onNavigateToSectionHandled,
+  deepLinkHostDraft,
+  onDeepLinkHostDraftHandled,
   terminalSettings,
 }) => {
   const { t } = useI18n();
@@ -308,7 +353,7 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
   const treeExpandedState = useTreeExpandedState(STORAGE_KEY_VAULT_HOSTS_TREE_EXPANDED);
   const [sortMode, setSortMode] = useStoredString<SortMode>(
     STORAGE_KEY_VAULT_HOSTS_SORT_MODE,
-    "az",
+    "manual",
     isSortMode,
   );
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -319,6 +364,16 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
   const [isHostPanelOpen, setIsHostPanelOpen] = useState(false);
   const [editingHost, setEditingHost] = useState<Host | null>(null);
   const [newHostGroupPath, setNewHostGroupPath] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!deepLinkHostDraft) return;
+    setCurrentSection("hosts");
+    setSelectedGroupPath(null);
+    setNewHostGroupPath(null);
+    setEditingHost(deepLinkHostDraft);
+    setIsHostPanelOpen(true);
+    onDeepLinkHostDraftHandled?.();
+  }, [deepLinkHostDraft, onDeepLinkHostDraftHandled]);
 
   // When the side panel is open, Tailwind's viewport-based grid-cols-* can't
   // react to the narrowed content area, so we drive the host-grid column count
@@ -656,6 +711,7 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
     visibleDisplayedHosts,
   } = useVaultHostCollections({
     customGroups,
+    groupConfigs,
     hosts,
     knownHosts,
     onConvertKnownHost,
@@ -926,6 +982,70 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
       setSelectedGroupPath(newPath);
     }
   };
+
+  const reorderHost = useCallback((sourceHostId: string, targetHostId: string, position: VaultOrderPosition) => {
+    const source = hostsRef.current.find((host) => host.id === sourceHostId);
+    const target = hostsRef.current.find((host) => host.id === targetHostId);
+    if (!source || !target) return;
+    const targetGroup = target.group || "";
+    const targetManagedSource = managedSources
+      .filter((sourceInfo) => targetGroup === sourceInfo.groupName || targetGroup.startsWith(`${sourceInfo.groupName}/`))
+      .sort((a, b) => b.groupName.length - a.groupName.length)[0];
+    const updatedHosts = hostsRef.current.map((host) =>
+      host.id === sourceHostId
+        ? {
+          ...host,
+          label:
+            targetManagedSource && (!host.protocol || host.protocol === "ssh")
+              ? host.label.replace(/\s/g, "")
+              : host.label,
+          group: targetGroup,
+          managedSourceId:
+            targetManagedSource && (!host.protocol || host.protocol === "ssh")
+              ? targetManagedSource.id
+              : undefined,
+        }
+        : host,
+    );
+    const reorderedHosts = reorderVaultItems<Host>(updatedHosts, sourceHostId, targetHostId, position);
+    if (haveSameHostOrderResult(hostsRef.current, reorderedHosts)) return;
+    onUpdateHosts(reorderedHosts);
+    setSortMode("manual");
+  }, [managedSources, onUpdateHosts, setSortMode]);
+
+  const reorderGroup = useCallback((sourcePath: string, targetPath: string, position: VaultOrderPosition) => {
+    const parentOf = (path: string) => {
+      const parts = path.split("/").filter(Boolean);
+      return parts.slice(0, -1).join("/");
+    };
+    if (parentOf(sourcePath) !== parentOf(targetPath)) return false;
+    const sortableGroups = Array.from(new Set([...customGroups, sourcePath, targetPath]));
+    const updatedGroups = reorderVaultStrings(sortableGroups, sourcePath, targetPath, position);
+    const orderByPath = new Map(updatedGroups.map((path, index) => [path, (index + 1) * 1000]));
+    const configByPath = new Map<string, GroupConfig>(groupConfigs.map((config) => [config.path, config]));
+    const nextConfigs: GroupConfig[] = [
+      ...updatedGroups.map((path) => {
+        const existing = configByPath.get(path);
+        const base: GroupConfig = existing ? { ...existing } : { path };
+        return {
+          ...base,
+          order: orderByPath.get(path),
+        };
+      }),
+      ...groupConfigs.filter((config) => !orderByPath.has(config.path)),
+    ];
+    if (
+      updatedGroups.length === customGroups.length &&
+      updatedGroups.every((path, index) => path === customGroups[index]) &&
+      haveSameGroupConfigs(groupConfigs, nextConfigs)
+    ) {
+      return true;
+    }
+    onUpdateCustomGroups(updatedGroups);
+    onUpdateGroupConfigs(nextConfigs);
+    setSortMode("manual");
+    return true;
+  }, [customGroups, groupConfigs, onUpdateCustomGroups, onUpdateGroupConfigs, setSortMode]);
   const {
     getDropTargetClasses,
     handleUnmanageGroup,
@@ -981,6 +1101,8 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
     handleUnmanageGroup,
     moveHostToGroup,
     moveGroup,
+    reorderHost,
+    reorderGroup,
     managedGroupPaths,
     startInlineNewGroup,
     startInlineRenameGroup,
@@ -1036,7 +1158,7 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
         managedGroupPaths={managedGroupPaths}
         onConfirmDelete={deleteGroupPath}
       />
-      <VaultViewLayout ctx={{ Activity, allGroupPaths, allTags, AppLogo, Array, Badge, BookMarked, Boolean, Button, CheckSquare, ChevronDown, cancelInlineGroupEdit, clearHostSelection, ClipboardCopy, Clock, cn, commitInlineGroupRename, connectionLogs, connectSelectedHosts, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, Copy, currentSection, customGroups, deleteGroupPath, deleteGroupWithHosts, deleteSelectedHosts, deleteTargetPath, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, displayedGroups, displayedHosts, DistroAvatar, Download, Dropdown, DropdownContent, DropdownTrigger, Edit2, editingGroupPath, editingHost, editingHostGroupDefaults, FileCode, FileSymlink, FolderPlus, FolderTree, getDropTargetClasses, getEffectiveHostDistro, Globe, groupConfigs, GroupDetailsPanel, groupedDisplayHosts, handleConnectClick, handleCopyCredentials, handleDeleteTag, handleDuplicateHost, handleEditGroupConfig, handleEditHost, handleEditTag, handleExportHosts, handleHostConnect, handleImportFileSelected, handleNewHost, handleProtocolSelect, handleQuickConnect, handleQuickConnectSaveHost, handleSaveGroupConfig, handleSearchKeyDown, handleUnmanageGroup, hasHostsSidePanel, HostDetailsPanel, hostListScrollRef, hosts, HostTreeView, hotkeyScheme, identities, ImportVaultDialog, Input, isDeleteGroupOpen, isGroupPanelOpen, isHostPanelOpen, isHostsSectionActive, isImportOpen, isMultiSelectMode, isNewFolderOpen, isQuickConnectOpen, isRenameGroupOpen, isSearchQuickConnect, isSerialModalOpen, Key, keyBindings, KeychainManager, keys, knownHostsManagerElement, Label, lastPinnedId, LayoutGrid, LazyConnectionLogsManager, LazyProtocolSelectDialog, List, managedGroupPaths, managedSources, moveGroup, moveHostToGroup, Network, newFolderName, newHostGroupPath, onClearUnsavedConnectionLogs, onConnectSerial, onCreateLocalTerminal, onDeleteConnectionLog, onDeleteHost, onImportOrReuseKey, onOpenLogView, onOpenSettings, onRunSnippet, onToggleConnectionLogSaved, onUpdateCustomGroups, onUpdateGroupConfigs, onUpdateHosts, onUpdateIdentities, onUpdateKeys, onUpdateProxyProfiles, onUpdateSnippetPackages, onUpdateSnippets, Pin, pinnedHosts, pinnedRecentIds, Plug, Plus, PortForwarding, protocolSelectHost, proxyProfiles, ProxyProfilesManager, quickConnectTarget, quickConnectWarnings, QuickConnectWizard, recentHosts, renameGroupError, renameGroupName, renameTargetPath, RippleButton, rootRef, sanitizeHost, search, Search, selectedGroupPath, selectedHostIds, selectedTags, SerialConnectModal, SerialHostDetailsPanel, sessionCount, Set, setCurrentSection, setDeleteGroupWithHosts, setDeleteTargetPath, setDragOverDropTarget, setEditingGroupPath, setEditingHost, setGroupDragOverDropTarget, setIsDeleteGroupOpen, setIsGroupPanelOpen, setIsHostPanelOpen, setIsImportOpen, setIsMultiSelectMode, setIsNewFolderOpen, setIsQuickConnectOpen, setIsRenameGroupOpen, setIsSerialModalOpen, setLastPinnedId, setNewFolderName, setNewHostGroupPath, setProtocolSelectHost, setQuickConnectTarget, setQuickConnectWarnings, setRenameGroupError, setRenameGroupName, setRenameTargetPath, setSearch, setSelectedGroupPath, setSelectedHostIds, setSelectedTags, setSidebarCollapsed, setSidebarWidth, handleSidebarWidthCommit, setSortMode, setTargetParentPath, Settings, setViewMode, shellHistory, shouldHideEmptyRootHostsSection, showRecentHosts, sidebarCollapsed, sidebarWidth, snippetPackages, snippets, SnippetsManager, SortDropdown, sortMode, splitViewGridStyle, Square, Star, startInlineDeleteGroup, startInlineNewGroup, startInlineRenameGroup, submitNewFolder, submitRenameGroup, Suspense, t, TagFilterDropdown, targetParentPath, terminalFontSize, terminalSettings, TerminalSquare, terminalThemeId, toggleHostPinned, toggleHostSelection, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, Trash2, treeExpandedState, treeViewGroupTree, treeViewHosts, Upload, upsertHostById, Usb, viewMode, visibleDisplayedHosts, X, Zap }} />
+      <VaultViewLayout ctx={{ Activity, allGroupPaths, allTags, AppLogo, Array, Badge, BookMarked, Boolean, Button, CheckSquare, ChevronDown, cancelInlineGroupEdit, clearHostSelection, ClipboardCopy, Clock, cn, commitInlineGroupRename, connectionLogs, connectSelectedHosts, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, Copy, currentSection, customGroups, deleteGroupPath, deleteGroupWithHosts, deleteSelectedHosts, deleteTargetPath, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, displayedGroups, displayedHosts, DistroAvatar, Download, Dropdown, DropdownContent, DropdownTrigger, Edit2, editingGroupPath, editingHost, editingHostGroupDefaults, FileCode, FileSymlink, FolderPlus, FolderTree, getDropTargetClasses, getEffectiveHostDistro, Globe, groupConfigs, GroupDetailsPanel, groupedDisplayHosts, handleConnectClick, handleCopyCredentials, handleDeleteTag, handleDuplicateHost, handleEditGroupConfig, handleEditHost, handleEditTag, handleExportHosts, handleHostConnect, handleImportFileSelected, handleNewHost, handleProtocolSelect, handleQuickConnect, handleQuickConnectSaveHost, handleSaveGroupConfig, handleSearchKeyDown, handleUnmanageGroup, hasHostsSidePanel, HostDetailsPanel, hostListScrollRef, hosts, HostTreeView, hotkeyScheme, identities, ImportVaultDialog, Input, isDeleteGroupOpen, isGroupPanelOpen, isHostPanelOpen, isHostsSectionActive, isImportOpen, isMultiSelectMode, isNewFolderOpen, isQuickConnectOpen, isRenameGroupOpen, isSearchQuickConnect, isSerialModalOpen, Key, keyBindings, KeychainManager, keys, knownHostsManagerElement, Label, lastPinnedId, LayoutGrid, LazyConnectionLogsManager, LazyProtocolSelectDialog, List, managedGroupPaths, managedSources, moveGroup, moveHostToGroup, Network, newFolderName, newHostGroupPath, noteGroups, NotebookText, notes, NotesManager, onClearUnsavedConnectionLogs, onConnectSerial, onCreateLocalTerminal, onDeleteConnectionLog, onDeleteHost, onImportOrReuseKey, onOpenHostFromNote, onOpenLogView, onOpenSettings, onRunSnippet, onToggleConnectionLogSaved, onUpdateCustomGroups, onUpdateGroupConfigs, onUpdateHosts, onUpdateIdentities, onUpdateKeys, onUpdateNoteGroups, onUpdateNotes, onUpdateProxyProfiles, onUpdateSnippetPackages, onUpdateSnippets, Pin, pinnedHosts, pinnedRecentIds, Plug, Plus, PortForwarding, protocolSelectHost, proxyProfiles, ProxyProfilesManager, quickConnectTarget, quickConnectWarnings, QuickConnectWizard, recentHosts, renameGroupError, renameGroupName, renameTargetPath, reorderGroup, reorderHost, RippleButton, rootRef, sanitizeHost, search, Search, selectedGroupPath, selectedHostIds, selectedTags, SerialConnectModal, SerialHostDetailsPanel, sessionCount, Set, setCurrentSection, setDeleteGroupWithHosts, setDeleteTargetPath, setDragOverDropTarget, setEditingGroupPath, setEditingHost, setGroupDragOverDropTarget, setIsDeleteGroupOpen, setIsGroupPanelOpen, setIsHostPanelOpen, setIsImportOpen, setIsMultiSelectMode, setIsNewFolderOpen, setIsQuickConnectOpen, setIsRenameGroupOpen, setIsSerialModalOpen, setLastPinnedId, setNewFolderName, setNewHostGroupPath, setProtocolSelectHost, setQuickConnectTarget, setQuickConnectWarnings, setRenameGroupError, setRenameGroupName, setRenameTargetPath, setSearch, setSelectedGroupPath, setSelectedHostIds, setSelectedTags, setSidebarCollapsed, setSidebarWidth, handleSidebarWidthCommit, setSortMode, setTargetParentPath, Settings, setViewMode, shellHistory, shouldHideEmptyRootHostsSection, showRecentHosts, sidebarCollapsed, sidebarWidth, snippetPackages, snippets, SnippetsManager, SortDropdown, sortMode, splitViewGridStyle, Square, Star, startInlineDeleteGroup, startInlineNewGroup, startInlineRenameGroup, submitNewFolder, submitRenameGroup, Suspense, t, TagFilterDropdown, targetParentPath, terminalFontSize, terminalSettings, TerminalSquare, terminalThemeId, toggleHostPinned, toggleHostSelection, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, Trash2, treeExpandedState, treeViewGroupTree, treeViewHosts, Upload, upsertHostById, Usb, viewMode, visibleDisplayedHosts, X, Zap }} />
     </>
   );
 };
@@ -1053,6 +1175,8 @@ export const vaultViewAreEqual = (
     prev.proxyProfiles === next.proxyProfiles &&
     prev.snippets === next.snippets &&
     prev.snippetPackages === next.snippetPackages &&
+    prev.notes === next.notes &&
+    prev.noteGroups === next.noteGroups &&
     prev.customGroups === next.customGroups &&
     prev.knownHosts === next.knownHosts &&
     prev.shellHistory === next.shellHistory &&
@@ -1063,6 +1187,7 @@ export const vaultViewAreEqual = (
     prev.terminalThemeId === next.terminalThemeId &&
     prev.terminalFontSize === next.terminalFontSize &&
     prev.navigateToSection === next.navigateToSection &&
+    prev.deepLinkHostDraft === next.deepLinkHostDraft &&
     // Only the keepalive fields of terminalSettings are forwarded to
     // PortForwarding inside the vault, so compare them directly. Other
     // terminal settings (fonts, themes, etc.) don't affect this subtree

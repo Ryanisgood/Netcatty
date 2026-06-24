@@ -81,6 +81,13 @@ function createOpenConnectionApi(ctx) {
               },
             ),
           };
+          connOpts.hostVerifier = hostKeyVerifier.createHostVerifier({
+            sender,
+            sessionId: connId,
+            hostname: jump.hostname,
+            port: jump.port || 22,
+            knownHosts: options.knownHosts,
+          });
     
           // Auth - support agent (certificate), key, and password fallback
           const hasCertificate =
@@ -222,6 +229,7 @@ function createOpenConnectionApi(ctx) {
               hostname: hopLabel,
               password: jump.password,
               logPrefix: `[SFTP Chain] Hop ${i + 1}/${jumpHosts.length}`,
+              scope: "external",
             });
             conn.on('keyboard-interactive', (name, instructions, lang, prompts, finish) => {
               if (prompts && prompts.length > 0) {
@@ -640,6 +648,13 @@ function createOpenConnectionApi(ctx) {
           algorithmOverrides: options.algorithmOverrides,
         }),
       };
+      connectOpts.hostVerifier = hostKeyVerifier.createHostVerifier({
+        sender: event.sender,
+        sessionId: connId,
+        hostname: options.hostname,
+        port: options.port || 22,
+        knownHosts: options.knownHosts,
+      });
     
       // Use the tunneled socket if we have one
       if (connectionSocket) {
@@ -761,6 +776,7 @@ function createOpenConnectionApi(ctx) {
         hostname: options.hostname,
         password: options.password,
         logPrefix: "[SFTP]",
+        scope: "external",
       });
     
       // Add keyboard-interactive listener BEFORE connecting

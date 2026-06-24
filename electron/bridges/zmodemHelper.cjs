@@ -105,6 +105,7 @@ function createZmodemSentry(opts) {
   let active = false;
   let currentZSession = null;
   let _needsDrain = false;
+  let _sawUploadBackpressure = false;
   const pendingEchoes = [];
   let pendingTerminalSuppression = null;
   let cancelInterruptTimer = null;
@@ -112,9 +113,15 @@ function createZmodemSentry(opts) {
   // After aborting, suppress incoming data briefly so residual ZMODEM
   // protocol bytes from the remote don't flood the terminal as garbage.
   let cooldownUntil = 0;
+  /** Drag-drop upload queued before auto-triggering rz on the PTY. */
+  let dragDropUpload = null;
+  let dragDropStartTimer = null;
   const COOLDOWN_MS = 2000;
   const ECHO_TTL_MS = 1500;
   const ECHO_MAX_BYTES = 256;
+  const dragDropStartTimeoutMs = Number.isFinite(opts.dragDropStartTimeoutMs)
+    ? Math.max(0, opts.dragDropStartTimeoutMs)
+    : 15000;
 
   function prunePendingEchoes(now = Date.now()) {
     while (pendingEchoes.length && pendingEchoes[0].expiresAt <= now) {
@@ -257,6 +264,39 @@ function createZmodemSentry(opts) {
     }
   }
 
+  function cleanupDragDropTempFiles(upload) {
+    if (!upload?.tempPaths?.length) return;
+    for (const tempPath of upload.tempPaths) {
+      try {
+        fs.unlinkSync(tempPath);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  function clearDragDropUpload() {
+    clearDragDropStartTimer();
+    if (dragDropUpload) {
+      cleanupDragDropTempFiles(dragDropUpload);
+      dragDropUpload = null;
+    }
+  }
+
+  function takeDragDropUpload() {
+    clearDragDropStartTimer();
+    const upload = dragDropUpload;
+    dragDropUpload = null;
+    return upload;
+  }
+
+  function clearDragDropStartTimer() {
+    if (dragDropStartTimer) {
+      clearTimeout(dragDropStartTimer);
+      dragDropStartTimer = null;
+    }
+  }
+
   function scheduleRemoteInterruptAfterCancel(transferRole) {
     if (cancelInterruptTimer) {
       clearTimeout(cancelInterruptTimer);
@@ -277,6 +317,38 @@ function createZmodemSentry(opts) {
       try { interruptRemote?.(); } catch { /* ignore */ }
       try { writeToRemote(Buffer.from("\x03")); } catch { /* ignore */ }
     }, 120);
+  }
+
+  function interruptPendingDragDropCommand() {
+    ignoreDetectionUntil = Date.now() + 1000;
+    sendExtraAbortBytes();
+    try { interruptRemote?.(); } catch { /* ignore */ }
+
+    if (cancelInterruptTimer) {
+      clearTimeout(cancelInterruptTimer);
+      cancelInterruptTimer = null;
+    }
+    cancelInterruptTimer = setTimeout(() => {
+      cancelInterruptTimer = null;
+      try { interruptRemote?.(); } catch { /* ignore */ }
+      try { writeToRemote(Buffer.from("\x03")); } catch { /* ignore */ }
+    }, 120);
+  }
+
+  function scheduleDragDropStartTimeout() {
+    clearDragDropStartTimer();
+    if (!dragDropStartTimeoutMs) return;
+    dragDropStartTimer = setTimeout(() => {
+      dragDropStartTimer = null;
+      if (!dragDropUpload || active) return;
+      console.warn(`[ZMODEM][${label}] Drag-drop upload did not start before timeout; cancelling pending upload`);
+      interruptPendingDragDropCommand();
+      clearDragDropUpload();
+      safeSend(getWebContents(), "netcatty:zmodem:error", {
+        sessionId,
+        error: "ZMODEM drag-drop upload did not start",
+      });
+    }, dragDropStartTimeoutMs);
   }
 
   function isIgnorableSendKeepaliveError(errMsg) {
@@ -314,7 +386,10 @@ function createZmodemSentry(opts) {
       const ok = writeToRemote(Buffer.from(octets));
       // Track backpressure: if stream.write() returned false, the
       // kernel TCP buffer is full.  The upload loop should pause.
-      if (ok === false) _needsDrain = true;
+      if (ok === false) {
+        _needsDrain = true;
+        _sawUploadBackpressure = true;
+      }
     },
 
     on_detect(detection) {
@@ -351,6 +426,17 @@ function createZmodemSentry(opts) {
       // underlying transport's write buffer is full.
       const transferOpts = {
         ...opts,
+        getDragDropUpload: () => dragDropUpload,
+        takeDragDropUpload,
+        clearDragDropUpload,
+        hasUploadBackpressure: () => _sawUploadBackpressure,
+        resetUploadBackpressure: () => {
+          _sawUploadBackpressure = false;
+        },
+        onUploadTimeout: () => {
+          ignoreDetectionUntil = Date.now() + 1000;
+          cooldownUntil = Date.now() + COOLDOWN_MS;
+        },
         waitForDrain: () => {
           if (!_needsDrain) return Promise.resolve();
           _needsDrain = false;
@@ -490,7 +576,7 @@ function createZmodemSentry(opts) {
     },
 
     /** Cancel the current ZMODEM transfer. */
-    cancel() {
+    cancel(options = {}) {
       if (currentZSession) {
         const transferRole = currentZSession.type;
         console.log(`[ZMODEM][${label}] Cancelling transfer for session ${sessionId}`);
@@ -504,6 +590,48 @@ function createZmodemSentry(opts) {
           sessionId,
           error: "Transfer cancelled",
         });
+      } else if (dragDropUpload && options.interrupt !== false) {
+        interruptPendingDragDropCommand();
+      }
+      clearDragDropUpload();
+    },
+
+    /**
+     * Queue files from a terminal drag-drop and auto-trigger rz on the PTY.
+     * @param {{ filePaths: string[], remoteNames?: string[], uploadCommand?: string, tempPaths?: string[] }} payload
+     */
+    queueDragDropUpload(payload) {
+      if (active) {
+        throw new Error("ZMODEM transfer already in progress");
+      }
+      const filePaths = payload?.filePaths;
+      if (!Array.isArray(filePaths) || filePaths.length === 0) {
+        throw new Error("No files to upload");
+      }
+      if (dragDropUpload) {
+        throw new Error("ZMODEM drag-drop upload already pending");
+      }
+
+      const uploadCommand = payload.uploadCommand || "rz\r";
+      dragDropUpload = {
+        filePaths,
+        remoteNames: payload.remoteNames,
+        uploadCommand,
+        tempPaths: payload.tempPaths || [],
+      };
+
+      const cmdBuf = Buffer.from(uploadCommand, "utf8");
+      const pendingEchoCount = pendingEchoes.length;
+      try {
+        rememberOutgoingEcho(cmdBuf);
+        pendingTerminalSuppression = Buffer.from(uploadCommand.replace(/\r$/, ""));
+        writeToRemote(cmdBuf);
+        scheduleDragDropStartTimeout();
+      } catch (err) {
+        pendingEchoes.length = pendingEchoCount;
+        pendingTerminalSuppression = null;
+        clearDragDropUpload();
+        throw err;
       }
     },
   };
@@ -513,20 +641,35 @@ function createZmodemSentry(opts) {
 // Shared helpers (module-level, usable from handleUpload / handleDownload)
 // ---------------------------------------------------------------------------
 
+const UPLOAD_FILE_END_TIMEOUT_MS = 45000;
+const UPLOAD_BACKPRESSURE_FILE_END_TIMEOUT_MS = 120000;
+const UPLOAD_SESSION_CLOSE_TIMEOUT_MS = 15000;
+
+function resolveTimeoutMs(value, fallback) {
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
 /**
  * Race a promise against a timeout.  If the promise doesn't settle within
- * `ms`, resolve with undefined instead of hanging forever.  This prevents
- * zmodem.js internal promises (xfer.end, zsession.close) from blocking
- * indefinitely after cancel/abort.
+ * `ms`, reject instead of hanging forever.  This prevents zmodem.js internal
+ * promises (xfer.end, zsession.close) from blocking indefinitely.
  */
-function withTimeout(promise, ms) {
+function withTimeout(promise, ms, message = "ZMODEM handshake timeout") {
   let timer;
   return Promise.race([
-    promise,
+    Promise.resolve(promise),
     new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error("ZMODEM handshake timeout")), ms);
+      timer = setTimeout(() => {
+        const err = new Error(message);
+        err.code = "NETCATTY_ZMODEM_TIMEOUT";
+        reject(err);
+      }, ms);
     }),
   ]).finally(() => clearTimeout(timer));
+}
+
+function isZmodemTimeoutError(err) {
+  return err && err.code === "NETCATTY_ZMODEM_TIMEOUT";
 }
 
 /**
@@ -538,6 +681,33 @@ function abortRemoteProcess(writeToRemote) {
   setTimeout(() => {
     try { writeToRemote(Buffer.from("\x03")); } catch { /* ignore */ }
   }, 150);
+}
+
+function resolveUploadFileEndTimeoutMs(opts) {
+  const normalTimeout = resolveTimeoutMs(
+    opts.uploadFileEndTimeoutMs,
+    UPLOAD_FILE_END_TIMEOUT_MS,
+  );
+  const slowTimeout = resolveTimeoutMs(
+    opts.slowUploadFileEndTimeoutMs,
+    UPLOAD_BACKPRESSURE_FILE_END_TIMEOUT_MS,
+  );
+
+  return opts.hasUploadBackpressure?.()
+    ? Math.max(normalTimeout, slowTimeout)
+    : normalTimeout;
+}
+
+async function waitForUploadHandshake(promise, ms, message, opts) {
+  try {
+    return await withTimeout(promise, ms, message);
+  } catch (err) {
+    if (isZmodemTimeoutError(err)) {
+      try { opts.onUploadTimeout?.(); } catch { /* ignore */ }
+      abortRemoteProcess(opts.writeToRemote);
+    }
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -560,23 +730,41 @@ async function handleUpload(zsession, opts) {
   const contents = getWebContents();
   const { BrowserWindow, dialog } = getElectron();
   const yieldToIO = () => new Promise((resolve) => setImmediate(resolve));
+  const uploadSessionCloseTimeoutMs = resolveTimeoutMs(
+    opts.uploadSessionCloseTimeoutMs,
+    UPLOAD_SESSION_CLOSE_TIMEOUT_MS,
+  );
 
-  const win = contents ? BrowserWindow.fromWebContents(contents) : null;
-  const result = await dialog.showOpenDialog(win || undefined, {
-    properties: ["openFile", "multiSelections"],
-    title: "Select files to upload (ZMODEM)",
-  });
+  const dragDrop = opts.takeDragDropUpload?.() ?? opts.getDragDropUpload?.();
+  let filePaths;
+  let allNames;
+  let dragDropTempPaths = [];
 
-  if (result.canceled || !result.filePaths.length) {
-    try { zsession.abort(); } catch { /* ignore */ }
-    abortRemoteProcess(opts.writeToRemote);
-    throw new Error("Transfer cancelled");
+  if (dragDrop?.filePaths?.length) {
+    filePaths = dragDrop.filePaths;
+    allNames = Array.isArray(dragDrop.remoteNames) && dragDrop.remoteNames.length === filePaths.length
+      ? dragDrop.remoteNames
+      : filePaths.map((fp) => path.basename(fp));
+    dragDropTempPaths = dragDrop.tempPaths || [];
+  } else {
+    const win = contents ? BrowserWindow.fromWebContents(contents) : null;
+    const result = await dialog.showOpenDialog(win || undefined, {
+      properties: ["openFile", "multiSelections"],
+      title: "Select files to upload (ZMODEM)",
+    });
+
+    if (result.canceled || !result.filePaths.length) {
+      try { zsession.abort(); } catch { /* ignore */ }
+      abortRemoteProcess(opts.writeToRemote);
+      throw new Error("Transfer cancelled");
+    }
+
+    filePaths = result.filePaths;
+    allNames = filePaths.map((fp) => path.basename(fp));
   }
 
-  const filePaths = result.filePaths;
-  const fileStats = filePaths.map((fp) => fs.statSync(fp));
-
-  const allNames = filePaths.map((fp) => path.basename(fp));
+  try {
+    const fileStats = filePaths.map((fp) => fs.statSync(fp));
 
   // Conflict handling (SSH only — callbacks absent on local/telnet/serial).
   // On any failure we fall back to today's behavior (rz silently skips).
@@ -615,6 +803,7 @@ async function handleUpload(zsession, opts) {
 
   for (let i = 0; i < offers.length; i++) {
     const { filePath, stat, name } = offers[i];
+    opts.resetUploadBackpressure?.();
 
     safeSend(contents, "netcatty:zmodem:progress", {
       sessionId,
@@ -688,13 +877,23 @@ async function handleUpload(zsession, opts) {
         transferType: "upload",
         finalizing: true,
       });
-      await withTimeout(xfer.end(), 120000);
+      await waitForUploadHandshake(
+        xfer.end(),
+        resolveUploadFileEndTimeoutMs(opts),
+        `Remote did not confirm receiving ${name}. The upload was stopped so the terminal can recover.`,
+        opts,
+      );
     } finally {
       fs.closeSync(fd);
     }
   }
 
-  await withTimeout(zsession.close(), 120000);
+  await waitForUploadHandshake(
+    zsession.close(),
+    uploadSessionCloseTimeoutMs,
+    "Remote did not finish the ZMODEM upload session in time. The upload was stopped so the terminal can recover.",
+    opts,
+  );
 
   // rz re-creates overwritten files with the remote umask, dropping their
   // original permission bits. Now that everything is on disk, restore them
@@ -706,6 +905,18 @@ async function handleUpload(zsession, opts) {
         await opts.restoreRemoteModes(restores);
       } catch (err) {
         console.warn("[ZMODEM] restoreRemoteModes failed:", err?.message || err);
+      }
+    }
+  }
+
+  } finally {
+    if (dragDropTempPaths.length) {
+      for (const tempPath of dragDropTempPaths) {
+        try {
+          fs.unlinkSync(tempPath);
+        } catch {
+          /* ignore */
+        }
       }
     }
   }
@@ -892,4 +1103,4 @@ function safeSend(contents, channel, data) {
   }
 }
 
-module.exports = { createZmodemSentry, buildUploadPlan, buildModeRestores };
+module.exports = { createZmodemSentry, buildUploadPlan, buildModeRestores, handleUpload };

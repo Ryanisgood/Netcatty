@@ -29,6 +29,7 @@ const THEME_COLORS = {
 // State
 let mainWindow = null;
 const mainWindows = new Set();
+const appContentWindows = new Set();
 let lastFocusedMainWindow = null;
 let settingsWindow = null;
 let currentTheme = "light";
@@ -124,8 +125,8 @@ function setQuittingForUpdate(nextValue) {
 
 /**
  * True when quitAndInstall() initiated the current quit. The before-quit guard
- * checks this to skip the dirty-editor round-trip and let the app exit so the
- * updater's installer can run.
+ * still performs the dirty-editor round-trip; if the user cancels to save, it
+ * uses this state to roll back the update quit flags.
  */
 function isQuittingForUpdate() {
   return quittingForUpdate;
@@ -286,9 +287,22 @@ function pruneMainWindows() {
   }
 }
 
+function pruneAppContentWindows() {
+  for (const win of Array.from(appContentWindows)) {
+    if (!win || win.isDestroyed?.()) {
+      appContentWindows.delete(win);
+    }
+  }
+}
+
 function getMainWindowList() {
   pruneMainWindows();
   return Array.from(mainWindows).filter((win) => isWindowUsable(win));
+}
+
+function getAppContentWindowList() {
+  pruneAppContentWindows();
+  return Array.from(appContentWindows).filter((win) => isWindowUsable(win));
 }
 
 function rememberMainWindow(win) {
@@ -297,8 +311,19 @@ function rememberMainWindow(win) {
   mainWindow = win;
 }
 
+function registerAppContentWindow(win) {
+  if (!win || win.isDestroyed?.()) return;
+  appContentWindows.add(win);
+}
+
+function unregisterAppContentWindow(win) {
+  if (!win) return;
+  appContentWindows.delete(win);
+}
+
 function registerMainWindow(win) {
   if (!win || win.isDestroyed?.()) return;
+  registerAppContentWindow(win);
   mainWindows.add(win);
   rememberMainWindow(win);
   try {
@@ -311,6 +336,7 @@ function registerMainWindow(win) {
 function unregisterMainWindow(win) {
   if (!win) return;
   mainWindows.delete(win);
+  unregisterAppContentWindow(win);
   if (lastFocusedMainWindow === win) lastFocusedMainWindow = null;
   if (mainWindow === win) mainWindow = null;
   const fallback = getMainWindowList().at(-1) || null;
@@ -770,10 +796,18 @@ function waitForRendererReady(win, { timeoutMs = 15000 } = {}) {
  * existing error path instead.
  */
 async function sendWhenRendererReady(win, channel, payload, options = {}) {
-  const { timeoutMs = 8000, waitForReady = waitForRendererReady } = options;
+  const {
+    timeoutMs = 8000,
+    waitForReady = waitForRendererReady,
+    shouldSend,
+    cancelReason = "cancelled",
+  } = options;
   try {
     await waitForReady(win, { timeoutMs });
   } catch (err) {
+    if (typeof shouldSend === "function" && shouldSend() === false) {
+      return { success: false, reason: cancelReason };
+    }
     return {
       success: false,
       error: "New window did not become ready in time",
@@ -782,6 +816,9 @@ async function sendWhenRendererReady(win, channel, payload, options = {}) {
   }
   if (win?.isDestroyed?.() || win?.webContents?.isDestroyed?.()) {
     return { success: false, error: "Window closed before message could be delivered" };
+  }
+  if (typeof shouldSend === "function" && shouldSend() === false) {
+    return { success: false, reason: cancelReason };
   }
   win.webContents.send(channel, payload);
   return { success: true };
@@ -830,11 +867,14 @@ const mainWindowApi = createMainWindowApi({
   createExternalOnlyWindowOpenHandler,
   createAppWindowOpenHandler,
   attachOAuthLoadingOverlay,
+  queryDirtyEditors: (...args) => require("./dirtyEditorGuard.cjs").queryDirtyEditors(...args),
   registerWindowHandlers,
   requestWindowCommandClose,
   shouldCloseWindowFromInput,
   registerMainWindow,
   unregisterMainWindow,
+  registerAppContentWindow,
+  unregisterAppContentWindow,
   getMainWindowCount,
   applyWindowOpacityToWindow,
   closeSettingsWindow: (...args) => closeSettingsWindow(...args),
@@ -893,6 +933,22 @@ const {
   hideSettingsWindow,
   prewarmSettingsWindow,
 } = settingsWindowApi;
+
+const { createTerminalPopupWindowApi } = require("./windowManager/terminalPopupWindow.cjs");
+const terminalPopupWindowApi = createTerminalPopupWindowApi({
+  get mainWindow() { return mainWindow; },
+  get currentTheme() { return currentTheme; },
+  V8_CACHE_OPTIONS,
+  __dirname,
+  resolveFrontendBackgroundColor,
+  createExternalOnlyWindowOpenHandler,
+  getDevRendererBaseUrl,
+  applyWindowOpacityToWindow,
+  sendWhenRendererReady,
+  showAndFocusWindow,
+  resolveSettingsWindowBounds,
+});
+const { openTerminalPopupWindow, closeTerminalPopupWindow } = terminalPopupWindowApi;
 
 /**
  * Register window control IPC handlers (only once)
@@ -1116,7 +1172,6 @@ function buildAppMenu(Menu, app, isMac, language = currentLanguage) {
       label: tMenu(language, "view"),
       submenu: [
         { label: tMenu(language, "reload"), click: (_, win) => { if (win) win.reload(); } },
-        { role: "forceReload" },
         { role: "toggleDevTools" },
         { type: "separator" },
         { role: "resetZoom" },
@@ -1174,14 +1229,19 @@ module.exports = {
   createWindow,
   openSettingsWindow,
   closeSettingsWindow,
+  openTerminalPopupWindow,
+  closeTerminalPopupWindow,
   prewarmSettingsWindow,
   buildAppMenu,
   getMainWindow,
   getMainWindows: getMainWindowList,
+  getAppContentWindows: getAppContentWindowList,
   getMainWindowCount,
   isMainWindow,
   registerMainWindow,
   unregisterMainWindow,
+  registerAppContentWindow,
+  unregisterAppContentWindow,
   getSettingsWindow,
   isWindowUsable,
   registerWindowHandlers,

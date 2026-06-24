@@ -26,6 +26,8 @@ test("build.files excludes per-platform agent binaries", () => {
     "!node_modules/@openai/codex-{darwin,linux,linuxmusl,win32}-*/**/*",
     "!node_modules/@github/copilot-{darwin,linux,linuxmusl,win32}-*/**/*",
     "!node_modules/@github/copilot/**/*",
+    "!node_modules/opencode-{darwin,linux,linuxmusl,windows}-*/**/*",
+    "!node_modules/opencode-ai/**/*",
   ];
   for (const glob of expectExclusions) {
     assert.ok(
@@ -52,6 +54,44 @@ test("asarUnpack no longer references removed legacy agent packages", () => {
 test("asarUnpack keeps MCP server runtime deps unpacked", () => {
   // @modelcontextprotocol/sdk is now a direct dep and the MCP server hard-requires it.
   assert.ok(config.asarUnpack.includes("node_modules/@modelcontextprotocol/sdk/**/*"));
+});
+
+test("asarUnpack keeps Cursor SDK runtime deps unpacked", () => {
+  assert.ok(
+    !config.asarUnpack.includes("node_modules/@cursor/sdk/**/*"),
+    "Cursor SDK JavaScript can load from app.asar and should not be duplicated into app.asar.unpacked",
+  );
+  assert.ok(config.asarUnpack.includes("node_modules/@cursor/sdk-*/**/*"));
+  assert.ok(config.asarUnpack.includes("node_modules/sqlite3/**/*"));
+});
+
+test("beforePack installs missing Cursor SDK platform runtime packages", () => {
+  assert.equal(config.beforePack, "./scripts/beforePackCursorSdk.cjs");
+});
+
+test("packaged app declares ssh URL protocol support", () => {
+  assert.deepEqual(config.protocols, [
+    {
+      name: "SSH URL",
+      schemes: ["ssh"],
+    },
+  ]);
+});
+
+test("build.files trims release-only dependency payloads", () => {
+  const files = config.files;
+  for (const glob of [
+    "!node_modules/@cursor/sdk/dist/cjs/**/*",
+    "!node_modules/@cursor/sdk/dist/**/*.d.ts",
+    "!node_modules/@cursor/sdk/dist/**/*.d.ts.map",
+    "!node_modules/sqlite3/deps/**/*",
+    "!node_modules/**/docs/**/*",
+    "!node_modules/**/doc/**/*",
+    "!node_modules/**/benchmark/**/*",
+    "!node_modules/**/benchmarks/**/*",
+  ]) {
+    assert.ok(files.includes(glob), `build.files must exclude release-only payload: ${glob}`);
+  }
 });
 
 test("linux packaging uses multi-size build/icons instead of a single 1024px override", async () => {

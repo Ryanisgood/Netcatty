@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   applyCustomAccentToTerminalTheme,
+  applySessionFontSizeToHost,
+  getFollowAppTerminalThemeSelectionUpdate,
   mergeTerminalHostUpdate,
   resolveFollowedTerminalThemeId,
   TERMINAL_THEME_AUTO,
@@ -128,6 +130,53 @@ test("terminal updates still persist SFTP bookmarks", () => {
   ]);
 });
 
+test("partial terminal updates preserve unrelated saved host fields", () => {
+  const hostWithAppearance: Host = {
+    ...savedHost,
+    fontSize: undefined,
+    fontSizeOverride: false,
+    showLineTimestamps: false,
+  };
+
+  const merged = mergeTerminalHostUpdate(hostWithAppearance, {
+    id: hostWithAppearance.id,
+    showLineTimestamps: true,
+  });
+
+  assert.equal(merged.showLineTimestamps, true);
+  assert.equal(merged.fontSize, undefined);
+  assert.equal(merged.fontSizeOverride, false);
+  assert.equal(merged.hostname, hostWithAppearance.hostname);
+});
+
+test("applySessionFontSizeToHost overlays workspace pane font size", () => {
+  const host: Host = {
+    id: "host-1",
+    label: "Server",
+    hostname: "example.com",
+    username: "root",
+    port: 22,
+    group: "",
+    tags: [],
+  };
+  const session = {
+    id: "session-1",
+    hostId: "host-1",
+    hostLabel: "Server",
+    username: "root",
+    hostname: "example.com",
+    status: "connected" as const,
+    workspaceId: "workspace-1",
+    fontSize: 18,
+    fontSizeOverride: true,
+  };
+
+  const merged = applySessionFontSizeToHost(host, session);
+
+  assert.equal(merged.fontSize, 18);
+  assert.equal(merged.fontSizeOverride, true);
+});
+
 test("terminal appearance reset clears only appearance fields", () => {
   const hostWithAppearance: Host = {
     ...savedHost,
@@ -205,6 +254,23 @@ test("follow-theme resolver: explicit light override wins over auto-matching", (
       fallbackThemeId: "netcatty-dark",
     }),
     "solarized-light",
+  );
+});
+
+test("follow-app theme selection updates the matching mode and app theme", () => {
+  assert.deepEqual(
+    getFollowAppTerminalThemeSelectionUpdate({ id: "snow", type: "light" }),
+    {
+      appTheme: "light",
+      terminalThemeLightId: "snow",
+    },
+  );
+  assert.deepEqual(
+    getFollowAppTerminalThemeSelectionUpdate({ id: "midnight", type: "dark" }),
+    {
+      appTheme: "dark",
+      terminalThemeDarkId: "midnight",
+    },
   );
 });
 

@@ -21,6 +21,7 @@ export interface ProxyProfile {
   config: ProxyConfig;
   createdAt: number;
   updatedAt?: number;
+  order?: number;
 }
 
 // Host chain configuration for jump host / bastion connections
@@ -48,6 +49,46 @@ export interface EnvVar {
 
 // Protocol type for connections
 export type HostProtocol = 'ssh' | 'telnet' | 'mosh' | 'et' | 'local' | 'serial';
+export type HostIconMode = 'auto' | 'custom';
+export type HostIconColorMode = 'auto' | 'manual';
+export type HostIconId =
+  | 'server'
+  | 'terminal'
+  | 'database'
+  | 'cloud'
+  | 'router'
+  | 'shield'
+  | 'code'
+  | 'box'
+  | 'globe'
+  | 'cpu'
+  | 'hard-drive'
+  | 'network'
+  | 'wifi'
+  | 'lock'
+  | 'key'
+  | 'monitor'
+  | 'container'
+  | 'activity'
+  | 'zap'
+  | 'server-cog';
+export type HostIconColorId =
+  | 'blue'
+  | 'green'
+  | 'red'
+  | 'amber'
+  | 'purple'
+  | 'cyan'
+  | 'orange'
+  | 'slate'
+  | 'violet'
+  | 'pink'
+  | 'rose'
+  | 'lime'
+  | 'teal'
+  | 'sky'
+  | 'indigo'
+  | 'zinc';
 
 // Serial port configuration
 export type SerialParity = 'none' | 'even' | 'odd' | 'mark' | 'space';
@@ -130,6 +171,11 @@ export interface Host {
   distro?: string; // detected distro id (e.g., ubuntu, debian)
   distroMode?: 'auto' | 'manual'; // whether distro icon comes from detection or manual override
   manualDistro?: string; // manually selected distro id when distroMode='manual'
+  iconMode?: HostIconMode; // Optional host icon mode. Missing/auto preserves distro detection.
+  iconId?: HostIconId; // Curated icon override used when iconMode='custom'
+  iconColorMode?: HostIconColorMode; // Whether icon color follows the icon default or a manual override
+  iconColor?: HostIconColorId; // Palette color used when iconColorMode='manual'
+  iconColorCustom?: string; // Custom hex color used when iconColorMode='manual'
   // Multi-protocol support
   protocols?: ProtocolConfig[]; // Multiple protocol configurations
   telnetPort?: number; // Telnet-specific port (for quick access)
@@ -142,6 +188,7 @@ export interface Host {
   sftpSudo?: boolean; // Use sudo for SFTP operations (requires password)
   sftpEncoding?: SftpFilenameEncoding; // Filename encoding for SFTP operations
   sftpBookmarks?: SftpBookmark[]; // Bookmarked SFTP paths for quick navigation
+  sftpFollowTerminalCwd?: boolean; // Overrides global SFTP follow-terminal-directory setting
   // Managed source: if this host is managed by an external file (e.g., ~/.ssh/config)
   managedSourceId?: string; // Reference to ManagedSource.id
   // Host-level keyword highlighting (overrides/extends global settings)
@@ -167,8 +214,15 @@ export interface Host {
   keepaliveInterval?: number; // Seconds; 0 = disabled
   keepaliveCountMax?: number; // Unanswered keepalives before declaring dead
   keepaliveOverride?: boolean;
+  // Show local timestamps for this host beside terminal output rows.
+  // Kept per-host because timestamp visibility is usually a host/workflow preference.
+  showLineTimestamps?: boolean;
   // What the Backspace key sends: undefined = xterm default (no interception), 'ctrl-h' = ^H (0x08)
   backspaceBehavior?: 'ctrl-h';
+  // When true, tab titles stay on the connection label instead of following the
+  // shell-reported window title (OSC 0/2). Useful when many hosts share one
+  // bastion profile name.
+  disableDynamicTabTitle?: boolean;
   // Local SSH key file paths (from SSH config IdentityFile or user-added)
   // Resolved at connection time — the app reads the file content when connecting.
   identityFilePaths?: string[];
@@ -183,6 +237,7 @@ export interface Host {
   localShellIcon?: string;
   /** User-authored Markdown notes (project, hardware, region, etc.) */
   notes?: string;
+  order?: number;
 }
 
 export type KeyType = 'RSA' | 'ECDSA' | 'ED25519';
@@ -204,6 +259,7 @@ export interface SSHKey {
   category: KeyCategory;
   created: number;
   filePath?: string;
+  order?: number;
 }
 
 // Identity combines username with authentication method
@@ -215,6 +271,7 @@ export interface Identity {
   password?: string; // For password auth
   keyId?: string; // Reference to SSHKey for key/certificate auth
   created: number;
+  order?: number;
 }
 
 export interface Snippet {
@@ -226,6 +283,19 @@ export interface Snippet {
   targets?: string[]; // host ids
   shortkey?: string; // Keyboard shortcut to send this snippet in terminal (e.g., "F1", "Ctrl + F1")
   noAutoRun?: boolean; // If true, paste command without executing (no trailing Enter)
+  order?: number;
+}
+
+export interface VaultNote {
+  id: string;
+  title: string;
+  content: string;
+  group?: string;
+  tags?: string[];
+  linkedHostIds?: string[];
+  createdAt: number;
+  updatedAt: number;
+  order?: number;
 }
 
 export interface ChatMessage {
@@ -245,6 +315,7 @@ export interface GroupNode {
 /** Default configuration for a group. Hosts in this group inherit these values when not explicitly set. */
 export interface GroupConfig {
   path: string;
+  order?: number;
   username?: string;
   password?: string;
   savePassword?: boolean;

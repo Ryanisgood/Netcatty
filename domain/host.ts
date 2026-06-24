@@ -1,4 +1,5 @@
 import { Host, TerminalSettings } from './models';
+import { sanitizeHostIconFields } from './hostIcon';
 import { migrateDeprecatedFontOverride } from '../infrastructure/config/fonts';
 
 export type HostLabelRenameResult =
@@ -47,6 +48,7 @@ export const LINUX_DISTRO_OPTIONS = [
   'oracle',
   'kali',
   'alinux',
+  'openeuler',
 ] as const;
 
 /**
@@ -86,6 +88,7 @@ export const normalizeDistroId = (value?: string) => {
   if (v.includes('almalinux')) return 'almalinux';
   if (v.includes('oracle')) return 'oracle';
   if (v.includes('kali')) return 'kali';
+  if (v.includes('openeuler') || v.includes('open euler')) return 'openeuler';
   // Alibaba Cloud Linux: os-release ID is `alinux` (older branding: Aliyun
   // Linux / `aliyun`). Must come before the generic `linux` fallback because
   // 'alinux'.includes('linux') is true and would otherwise resolve to 'linux'.
@@ -243,6 +246,47 @@ export const normalizePrimaryTelnetState = (host: Host): Host =>
     ? { ...host, telnetEnabled: true }
     : host;
 
+export const migrateHostsFromLegacyLineTimestamps = (
+  hosts: Host[],
+  legacyEnabled: boolean,
+): Host[] => {
+  if (!legacyEnabled) return hosts;
+  let changed = false;
+  const migrated = hosts.map((host) => {
+    if (host.showLineTimestamps !== undefined) return host;
+    changed = true;
+    return { ...host, showLineTimestamps: true };
+  });
+  return changed ? migrated : hosts;
+};
+
+export const preserveConcurrentHostLineTimestampUpdate = ({
+  draft,
+  openedHost,
+  latestHost,
+}: {
+  draft: Host;
+  openedHost?: Host | null;
+  latestHost?: Host | null;
+}): Host => {
+  if (!openedHost || !latestHost) return draft;
+  if (draft.id !== openedHost.id || draft.id !== latestHost.id) return draft;
+  let next = draft;
+  if (
+    draft.showLineTimestamps === openedHost.showLineTimestamps &&
+    latestHost.showLineTimestamps !== openedHost.showLineTimestamps
+  ) {
+    next = { ...next, showLineTimestamps: latestHost.showLineTimestamps };
+  }
+  if (
+    draft.sftpFollowTerminalCwd === openedHost.sftpFollowTerminalCwd &&
+    latestHost.sftpFollowTerminalCwd !== openedHost.sftpFollowTerminalCwd
+  ) {
+    next = { ...next, sftpFollowTerminalCwd: latestHost.sftpFollowTerminalCwd };
+  }
+  return next;
+};
+
 export const upsertHostById = (hosts: Host[], host: Host): Host[] => {
   const hostExists = hosts.some((entry) => entry.id === host.id);
   return hostExists
@@ -294,6 +338,7 @@ export const sanitizeHost = (host: Host): Host => {
       : host.distroMode === 'auto'
         ? 'auto'
         : undefined;
+  const cleanHostIcon = sanitizeHostIconFields(host);
   const migrated = migrateDeprecatedFontOverride(host);
   const cleanNotes = host.notes?.trim() || undefined;
   return {
@@ -302,6 +347,12 @@ export const sanitizeHost = (host: Host): Host => {
     distro: cleanDistro,
     distroMode: cleanDistroMode,
     manualDistro: cleanManualDistro || undefined,
+    iconMode: undefined,
+    iconId: undefined,
+    iconColorMode: undefined,
+    iconColor: undefined,
+    iconColorCustom: undefined,
+    ...cleanHostIcon,
     notes: cleanNotes,
   };
 };

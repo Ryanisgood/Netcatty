@@ -1,8 +1,10 @@
 import { Server, Usb } from "lucide-react";
 import React, { memo } from "react";
 import { getEffectiveHostDistro } from "../domain/host";
+import { resolveHostIconAppearance, resolveHostIconColorAppearance } from "../domain/hostIcon";
 import { cn } from "../lib/utils";
 import { Host } from "../types";
+import { renderHostIconGlyph } from "./hostIconRenderer";
 
 export const DISTRO_LOGOS: Record<string, string> = {
   ubuntu: "/distro/ubuntu.svg",
@@ -19,6 +21,7 @@ export const DISTRO_LOGOS: Record<string, string> = {
   kali: "/distro/kali.svg",
   almalinux: "/distro/almalinux.svg",
   alinux: "/distro/alinux.svg",
+  openeuler: "/distro/openeuler.svg",
   // OS-level logos (used by local terminal tab icons)
   macos: "/distro/macos.svg",
   windows: "/distro/windows.svg",
@@ -50,6 +53,7 @@ export const DISTRO_COLORS: Record<string, string> = {
   kali: "bg-[#0F6DB3]",
   almalinux: "bg-[#173B66]",
   alinux: "bg-[#FF6A00]",
+  openeuler: "bg-[#002FA7]",
   // OS-level colors
   macos: "bg-[#333333]",
   windows: "bg-[#0078D4]",
@@ -69,7 +73,7 @@ export const DISTRO_COLORS: Record<string, string> = {
 
 type DistroAvatarProps = {
   host: Pick<Host, "distro" | "manualDistro" | "distroMode" | "os"> &
-    Partial<Pick<Host, "protocol">>;
+    Partial<Pick<Host, "protocol" | "iconMode" | "iconId" | "iconColorMode" | "iconColor" | "iconColorCustom">>;
   fallback: string;
   className?: string;
   /** xs matches top tab bar icons (h-4 rounded rect) */
@@ -92,7 +96,7 @@ const DistroAvatarInner: React.FC<DistroAvatarProps> = ({
     xs: "h-4 w-4 rounded",
     sm: "h-5 w-5 rounded",
     md: "h-8 w-8 rounded",
-    tree: "h-8 w-8 rounded-lg",
+    tree: "h-6 w-6 rounded",
     log: "h-9 w-9 rounded-xl",
     lg: "h-11 w-11 rounded-xl",
   };
@@ -100,7 +104,7 @@ const DistroAvatarInner: React.FC<DistroAvatarProps> = ({
     xs: "h-2.5 w-2.5",
     sm: "h-3 w-3",
     md: "h-4 w-4",
-    tree: "h-4 w-4",
+    tree: "h-3.5 w-3.5",
     log: "h-5 w-5",
     lg: "h-5 w-5",
   };
@@ -123,15 +127,33 @@ const DistroAvatarInner: React.FC<DistroAvatarProps> = ({
     );
   }
 
+  const customAppearance = resolveHostIconAppearance(host);
+  const customColor = resolveHostIconColorAppearance(host);
+  if (customAppearance) {
+    return (
+      <div
+        className={cn(
+          "shrink-0 rounded flex items-center justify-center text-white",
+          containerClass,
+          className,
+        )}
+        style={{ backgroundColor: customAppearance.colorHex }}
+      >
+        {renderHostIconGlyph(customAppearance.iconId, iconSize)}
+      </div>
+    );
+  }
+
   if (logo && !errored) {
     return (
       <div
         className={cn(
           "shrink-0 rounded flex items-center justify-center overflow-hidden",
           containerClass,
-          bg,
+          !customColor && bg,
           className,
         )}
+        style={customColor ? { backgroundColor: customColor.colorHex } : undefined}
       >
         <img
           src={logo}

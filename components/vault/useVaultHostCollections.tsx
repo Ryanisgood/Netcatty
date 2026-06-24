@@ -1,12 +1,14 @@
 import React, { useCallback, useMemo } from "react";
 
 import { upsertKnownHost } from "../../domain/knownHosts";
-import type { GroupNode, Host, KnownHost } from "../../types";
+import { sortByVaultOrder, sortVaultStringsByOrder } from "../../domain/vaultOrder";
+import type { GroupConfig, GroupNode, Host, KnownHost } from "../../types";
 import KnownHostsManager from "../KnownHostsManager";
 import type { SortMode } from "../ui/sort-dropdown";
 
 interface UseVaultHostCollectionsOptions {
   customGroups: string[];
+  groupConfigs: GroupConfig[];
   hosts: Host[];
   knownHosts: KnownHost[];
   onConvertKnownHost: (knownHost: KnownHost) => void;
@@ -23,6 +25,7 @@ interface UseVaultHostCollectionsOptions {
 
 export function useVaultHostCollections({
   customGroups,
+  groupConfigs,
   hosts,
   knownHosts,
   onConvertKnownHost,
@@ -36,6 +39,80 @@ export function useVaultHostCollections({
   sortMode,
   viewMode,
 }: UseVaultHostCollectionsOptions) {
+  const groupOrderByPath = useMemo(() => {
+    return new Map(
+      groupConfigs
+        .filter((config) => typeof config.order === "number" && Number.isFinite(config.order))
+        .map((config) => [config.path, config.order as number]),
+    );
+  }, [groupConfigs]);
+
+  const searchTerm = useMemo(() => search.trim().toLowerCase(), [search]);
+  const selectedTagSet = useMemo(() => new Set(selectedTags), [selectedTags]);
+  const hasSelectedTags = selectedTags.length > 0;
+
+  const hostMatchesSearchAndTags = useCallback((host: Host): boolean => {
+    if (searchTerm) {
+      const matchesSearch =
+        host.label.toLowerCase().includes(searchTerm) ||
+        host.hostname.toLowerCase().includes(searchTerm) ||
+        host.tags.some((tag) => tag.toLowerCase().includes(searchTerm)) ||
+        (host.notes?.toLowerCase().includes(searchTerm) ?? false);
+      if (!matchesSearch) return false;
+    }
+    if (hasSelectedTags && !host.tags?.some((tag) => selectedTagSet.has(tag))) {
+      return false;
+    }
+    return true;
+  }, [hasSelectedTags, searchTerm, selectedTagSet]);
+
+  const filteredHosts = useMemo(
+    () => hosts.filter(hostMatchesSearchAndTags),
+    [hostMatchesSearchAndTags, hosts],
+  );
+
+  const sortHosts = useCallback((input: readonly Host[]): Host[] => {
+    if (sortMode === "manual") return sortByVaultOrder(input);
+    return [...input].sort((a, b) => {
+      switch (sortMode) {
+        case "az":
+          return a.label.localeCompare(b.label);
+        case "za":
+          return b.label.localeCompare(a.label);
+        case "newest":
+          return (b.createdAt || 0) - (a.createdAt || 0);
+        case "oldest":
+          return (a.createdAt || 0) - (b.createdAt || 0);
+        case "group": {
+          const groupA = a.group || "";
+          const groupB = b.group || "";
+          const groupCmp = groupA.localeCompare(groupB);
+          return groupCmp !== 0 ? groupCmp : a.label.localeCompare(b.label);
+        }
+        default:
+          return 0;
+      }
+    });
+  }, [sortMode]);
+
+  const orderedCustomGroups = useMemo(() => {
+    return sortVaultStringsByOrder(customGroups, groupOrderByPath);
+  }, [customGroups, groupOrderByPath]);
+
+  const sortGroupNodes = useCallback((nodes: GroupNode[]) => {
+    const originalIndex = new Map(nodes.map((node, index) => [node.path, index]));
+    return [...nodes].sort((a, b) => {
+      const orderA = groupOrderByPath.get(a.path);
+      const orderB = groupOrderByPath.get(b.path);
+      const hasOrderA = typeof orderA === "number" && Number.isFinite(orderA);
+      const hasOrderB = typeof orderB === "number" && Number.isFinite(orderB);
+      if (hasOrderA && hasOrderB && orderA !== orderB) return orderA - orderB;
+      if (hasOrderA) return -1;
+      if (hasOrderB) return 1;
+      return (originalIndex.get(a.path) ?? 0) - (originalIndex.get(b.path) ?? 0);
+    });
+  }, [groupOrderByPath]);
+
   const countAllHostsInNode = useCallback((node: GroupNode): number => {
       let count = node.hosts.length;
       Object.values(node.children).forEach((child) => {
@@ -66,13 +143,13 @@ export function useVaultHostCollections({
           currentLevel = currentLevel[part].children;
         });
       };
-      customGroups.forEach((path) => insertPath(path));
+      orderedCustomGroups.forEach((path) => insertPath(path));
       hosts.forEach((host) => insertPath(host.group || "General", host));
   
       Object.values(root).forEach(countAllHostsInNode);
   
       return root;
-    }, [hosts, customGroups, countAllHostsInNode]);
+    }, [hosts, orderedCustomGroups, countAllHostsInNode]);
   
   // Generate all possible group paths from the tree (including all intermediate nodes)
     const allGroupPaths = useMemo(() => {
@@ -116,12 +193,12 @@ export function useVaultHostCollections({
     };
   
   const displayedHosts = useMemo(() => {
-      let filtered = hosts;
+      let filtered = filteredHosts;
       // Search spans all groups (#777): when the user types in the search box
       // we skip group/ungrouped-root scoping, so a matching host in another
       // group is still reachable without having to navigate into it first.
       // The tree view already uses this shape — see `treeViewHosts` below.
-      const hasSearch = search.trim().length > 0;
+      const hasSearch = searchTerm.length > 0;
       if (!hasSearch) {
         if (selectedGroupPath) {
           // Match hosts whose group equals the selected path
@@ -140,92 +217,26 @@ export function useVaultHostCollections({
           });
         }
       }
-      if (hasSearch) {
-        const s = search.toLowerCase();
-        filtered = filtered.filter(
-          (h) =>
-            h.label.toLowerCase().includes(s) ||
-            h.hostname.toLowerCase().includes(s) ||
-            h.tags.some((t) => t.toLowerCase().includes(s)) ||
-            (h.notes?.toLowerCase().includes(s) ?? false),
-        );
-      }
-      // Apply tag filter
-      if (selectedTags.length > 0) {
-        filtered = filtered.filter((h) =>
-          selectedTags.some((t) => h.tags?.includes(t)),
-        );
-      }
-      filtered = [...filtered].sort((a, b) => {
-        switch (sortMode) {
-          case "az":
-            return a.label.localeCompare(b.label);
-          case "za":
-            return b.label.localeCompare(a.label);
-          case "newest":
-            return (b.createdAt || 0) - (a.createdAt || 0);
-          case "oldest":
-            return (a.createdAt || 0) - (b.createdAt || 0);
-          case "group": {
-            const groupA = a.group || "";
-            const groupB = b.group || "";
-            const groupCmp = groupA.localeCompare(groupB);
-            return groupCmp !== 0 ? groupCmp : a.label.localeCompare(b.label);
-          }
-          default:
-            return 0;
-        }
-      });
-      return filtered;
-    }, [hosts, selectedGroupPath, showOnlyUngroupedHostsInRoot, search, selectedTags, sortMode]);
+      return sortHosts(filtered);
+    }, [filteredHosts, searchTerm.length, selectedGroupPath, showOnlyUngroupedHostsInRoot, sortHosts]);
   
   // Pinned hosts for root-level display (not inside a subgroup)
     // Respects active search and tag filters
     const pinnedHosts = useMemo(() => {
       if (selectedGroupPath) return [];
-      let filtered = hosts.filter((h) => h.pinned);
-      if (search.trim()) {
-        const s = search.toLowerCase();
-        filtered = filtered.filter(
-          (h) =>
-            h.label.toLowerCase().includes(s) ||
-            h.hostname.toLowerCase().includes(s) ||
-            h.tags.some((t) => t.toLowerCase().includes(s)) ||
-            (h.notes?.toLowerCase().includes(s) ?? false),
-        );
-      }
-      if (selectedTags.length > 0) {
-        filtered = filtered.filter((h) =>
-          selectedTags.some((t) => h.tags?.includes(t)),
-        );
-      }
+      const filtered = filteredHosts.filter((h) => h.pinned);
       return filtered.sort((a, b) => a.label.localeCompare(b.label));
-    }, [hosts, selectedGroupPath, search, selectedTags]);
+    }, [filteredHosts, selectedGroupPath]);
   
   // Recently connected hosts for root-level display
     // Respects active search and tag filters
     const recentHosts = useMemo(() => {
       if (selectedGroupPath) return [];
-      let filtered = hosts.filter((h) => h.lastConnectedAt);
-      if (search.trim()) {
-        const s = search.toLowerCase();
-        filtered = filtered.filter(
-          (h) =>
-            h.label.toLowerCase().includes(s) ||
-            h.hostname.toLowerCase().includes(s) ||
-            h.tags.some((t) => t.toLowerCase().includes(s)) ||
-            (h.notes?.toLowerCase().includes(s) ?? false),
-        );
-      }
-      if (selectedTags.length > 0) {
-        filtered = filtered.filter((h) =>
-          selectedTags.some((t) => h.tags?.includes(t)),
-        );
-      }
+      const filtered = filteredHosts.filter((h) => h.lastConnectedAt);
       return filtered
         .sort((a, b) => (b.lastConnectedAt || 0) - (a.lastConnectedAt || 0))
         .slice(0, 6);
-    }, [hosts, selectedGroupPath, search, selectedTags]);
+    }, [filteredHosts, selectedGroupPath]);
   
   // No longer deduplicate pinned/recent hosts from the main list,
     // so hosts always appear in their groups regardless of pinned/recent status.
@@ -238,45 +249,8 @@ export function useVaultHostCollections({
   
   // For tree view: apply search, tag filter, and sorting, but not group filtering
     const treeViewHosts = useMemo(() => {
-      let filtered = hosts;
-      if (search.trim()) {
-        const s = search.toLowerCase();
-        filtered = filtered.filter(
-          (h) =>
-            h.label.toLowerCase().includes(s) ||
-            h.hostname.toLowerCase().includes(s) ||
-            h.tags.some((t) => t.toLowerCase().includes(s)) ||
-            (h.notes?.toLowerCase().includes(s) ?? false),
-        );
-      }
-      // Apply tag filter
-      if (selectedTags.length > 0) {
-        filtered = filtered.filter((h) =>
-          selectedTags.some((t) => h.tags?.includes(t)),
-        );
-      }
-      filtered = [...filtered].sort((a, b) => {
-        switch (sortMode) {
-          case "az":
-            return a.label.localeCompare(b.label);
-          case "za":
-            return b.label.localeCompare(a.label);
-          case "newest":
-            return (b.createdAt || 0) - (a.createdAt || 0);
-          case "oldest":
-            return (a.createdAt || 0) - (b.createdAt || 0);
-          case "group": {
-            const groupA = a.group || "";
-            const groupB = b.group || "";
-            const groupCmp = groupA.localeCompare(groupB);
-            return groupCmp !== 0 ? groupCmp : a.label.localeCompare(b.label);
-          }
-          default:
-            return 0;
-        }
-      });
-      return filtered;
-    }, [hosts, search, selectedTags, sortMode]);
+      return sortHosts(filteredHosts);
+    }, [filteredHosts, sortHosts]);
   
   const groupedDisplayHosts = useMemo(() => {
       if (sortMode !== "group") return null;
@@ -319,7 +293,7 @@ export function useVaultHostCollections({
           currentLevel = currentLevel[part].children;
         });
       };
-      customGroups.forEach((path) => insertPath(path));
+      orderedCustomGroups.forEach((path) => insertPath(path));
       // Use filtered hosts (treeViewHosts) instead of all hosts to respect search/tag filters
       treeViewHosts.forEach((host) => {
         if (host.group && host.group.trim() !== "") {
@@ -330,12 +304,14 @@ export function useVaultHostCollections({
       Object.values(root).forEach(countAllHostsInNode);
       
       return root;
-    }, [treeViewHosts, customGroups, countAllHostsInNode]);
+    }, [treeViewHosts, orderedCustomGroups, countAllHostsInNode]);
   
   // Create tree view specific group tree that excludes ungrouped hosts
-    const treeViewGroupTree = useMemo<GroupNode[]>(() => {
-      return (Object.values(buildTreeViewGroupTree) as GroupNode[]).sort((a, b) => a.name.localeCompare(b.name));
-    }, [buildTreeViewGroupTree]);
+  const treeViewGroupTree = useMemo<GroupNode[]>(() => {
+      const nodes = Object.values(buildTreeViewGroupTree) as GroupNode[];
+      if (sortMode === "manual") return sortGroupNodes(nodes);
+      return nodes.sort((a, b) => a.name.localeCompare(b.name));
+    }, [buildTreeViewGroupTree, sortGroupNodes, sortMode]);
   
   // Compute all unique tags across all hosts
     const allTags = useMemo(() => {
@@ -382,27 +358,28 @@ export function useVaultHostCollections({
         const isGeneralUserCreated = customGroups.some(
           (g) => g === "General" || g.startsWith("General/")
         );
-        return (Object.values(buildGroupTree) as GroupNode[])
+        const nodes = (Object.values(buildGroupTree) as GroupNode[])
           .filter((node) => {
             if (node.name !== "General") return true;
             // Keep General if user explicitly created it or it has subgroups
             if (isGeneralUserCreated) return true;
             if (Object.keys(node.children).length > 0) return true;
             return false;
-          })
-          .sort((a, b) => a.name.localeCompare(b.name));
+          });
+        if (sortMode === "manual") return sortGroupNodes(nodes);
+        return nodes.sort((a, b) => a.name.localeCompare(b.name));
       }
       const node = findGroupNode(selectedGroupPath);
       if (!node || !node.children) return [];
-      return (Object.values(node.children) as GroupNode[]).sort((a, b) =>
-        a.name.localeCompare(b.name),
-      );
+      const children = Object.values(node.children) as GroupNode[];
+      if (sortMode === "manual") return sortGroupNodes(children);
+      return children.sort((a, b) => a.name.localeCompare(b.name));
       // eslint-disable-next-line react-hooks/exhaustive-deps -- findGroupNode is derived from buildGroupTree
-    }, [buildGroupTree, selectedGroupPath, customGroups]);
+    }, [buildGroupTree, selectedGroupPath, customGroups, sortGroupNodes, sortMode]);
   
   const shouldHideEmptyRootHostsSection = useMemo(() => {
       if (selectedGroupPath || viewMode === "tree") return false;
-      if (search.trim() || selectedTags.length > 0) return false;
+      if (searchTerm || selectedTags.length > 0) return false;
       if (visibleDisplayedHosts.length > 0) return false;
       return (
         displayedGroups.length > 0 ||
@@ -412,7 +389,7 @@ export function useVaultHostCollections({
     }, [
       selectedGroupPath,
       viewMode,
-      search,
+      searchTerm,
       selectedTags.length,
       visibleDisplayedHosts.length,
       displayedGroups.length,
@@ -455,6 +432,10 @@ export function useVaultHostCollections({
   const handleImportKnownHosts = useCallback((newHosts: KnownHost[]) => {
       onUpdateKnownHostsRef.current([...knownHostsRef.current, ...newHosts]);
     }, []);
+
+  const handleReorderKnownHosts = useCallback((nextKnownHosts: KnownHost[]) => {
+      onUpdateKnownHostsRef.current(nextKnownHosts);
+    }, []);
   
   const handleRefreshKnownHosts = useCallback(() => {
       // Placeholder for system scan
@@ -468,6 +449,7 @@ export function useVaultHostCollections({
           hosts={hosts}
           onSave={handleSaveKnownHost}
           onUpdate={handleUpdateKnownHost}
+          onReorder={handleReorderKnownHosts}
           onDelete={handleDeleteKnownHost}
           onConvertToHost={onConvertKnownHost}
           onImportFromFile={handleImportKnownHosts}

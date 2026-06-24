@@ -3,6 +3,20 @@ function createAgentCliHelpers(ctx) {
   with (ctx) {
   async function runCommand(command, args, options) {
     return await new Promise((resolve, reject) => {
+      let settled = false;
+      let closed = false;
+      let timeoutId = null;
+      let killId = null;
+      function clearTimers() {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        if (killId) {
+          clearTimeout(killId);
+          killId = null;
+        }
+      }
       const spawnSpec = prepareCommandForSpawn(command, args || []);
       const child = spawn(spawnSpec.command, spawnSpec.args, {
         stdio: ["ignore", "pipe", "pipe"],
@@ -15,6 +29,7 @@ function createAgentCliHelpers(ctx) {
       let stdout = "";
       let stderr = "";
       const MAX_BUFFER = 10 * 1024 * 1024; // 10MB
+      const timeoutMs = Number.isFinite(options?.timeoutMs) ? Number(options.timeoutMs) : 0;
 
       child.stdout.on("data", (chunk) => {
         if (stdout.length < MAX_BUFFER) {
@@ -29,16 +44,44 @@ function createAgentCliHelpers(ctx) {
       });
 
       child.once("error", (error) => {
+        closed = true;
+        if (settled) return;
+        settled = true;
+        clearTimers();
         reject(error);
       });
 
       child.once("close", (exitCode) => {
+        closed = true;
+        clearTimers();
+        if (settled) return;
+        settled = true;
         resolve({
           stdout: stripAnsi(stdout),
           stderr: stripAnsi(stderr),
           exitCode,
         });
       });
+
+      if (timeoutMs > 0) {
+        timeoutId = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          const error = new Error(`Command timed out after ${timeoutMs}ms`);
+          error.code = "ETIMEDOUT";
+          try {
+            if (!closed) child.kill("SIGTERM");
+          } catch {}
+          killId = setTimeout(() => {
+            try {
+              if (!closed) child.kill("SIGKILL");
+            } catch {}
+          }, 750);
+          if (typeof killId.unref === "function") killId.unref();
+          reject(error);
+        }, timeoutMs);
+        if (typeof timeoutId.unref === "function") timeoutId.unref();
+      }
     });
   }
 
@@ -55,7 +98,7 @@ function createAgentCliHelpers(ctx) {
 
   async function probeCliVersion(probeCmd, probeArgs, env) {
     try {
-      const result = await runCommand(probeCmd, probeArgs, { env });
+      const result = await runCommand(probeCmd, probeArgs, { env, timeoutMs: 5000 });
       return {
         launched: true,
         exitCode: result.exitCode,
@@ -74,7 +117,12 @@ function createAgentCliHelpers(ctx) {
 
   async function runCodexCli(args, options) {
     const shellEnv = await getShellEnv();
-    const codexCliPath = resolveCliFromPath("codex", shellEnv) || "codex";
+    const requestedPath = String(options?.codexPath || "").trim();
+    const configuredPath = requestedPath ? normalizeCliPathForPlatform?.(requestedPath) : null;
+    if (requestedPath && !configuredPath) {
+      throw new Error(`Codex CLI path not found: ${requestedPath}`);
+    }
+    const codexCliPath = configuredPath || await resolveCliFromPathAsync("codex", shellEnv) || "codex";
     return await runCommand(codexCliPath, args, {
       cwd: options?.cwd?.trim() || undefined,
       env: shellEnv,
@@ -97,17 +145,32 @@ function createAgentCliHelpers(ctx) {
   async function validateCodexChatGptAuth(options) {
     const maxAgeMs = options?.maxAgeMs ?? 30000;
     const now = Date.now();
-    const cached = getCodexValidationCache();
-    if (cached && now - cached.checkedAt < maxAgeMs) return cached;
-
-    const shellEnv = await getShellEnv();
-    const rawCodexPath = resolveCliFromPath("codex", shellEnv);
-    if (!rawCodexPath) {
-      const result = { ok: false, checkedAt: now, error: "codex binary not found", code: "ENOENT" };
+    const rawRequestedCodexPath = String(options?.codexPath || "").trim();
+    const requestedCodexPath = rawRequestedCodexPath ? normalizeCliPathForPlatform?.(rawRequestedCodexPath) : null;
+    if (rawRequestedCodexPath && !requestedCodexPath) {
+      const result = {
+        ok: false,
+        checkedAt: now,
+        codexPath: null,
+        error: `Codex CLI path not found: ${rawRequestedCodexPath}`,
+        code: "ENOENT",
+      };
       setCodexValidationCache(result);
       return result;
     }
-    const codexPath = resolveSdkBinPath("codex", shellEnv);
+    const cached = getCodexValidationCache();
+    if (cached && now - cached.checkedAt < maxAgeMs && (cached.codexPath || null) === requestedCodexPath) return cached;
+
+    const shellEnv = await getShellEnv();
+    const rawCodexPath = requestedCodexPath || await resolveSdkBinPathAsync("codex", shellEnv);
+    const codexPath = rawCodexPath && typeof resolveCodexExecutableForSdk === "function"
+      ? resolveCodexExecutableForSdk(rawCodexPath) || null
+      : rawCodexPath;
+    if (!codexPath) {
+      const result = { ok: false, checkedAt: now, codexPath: requestedCodexPath, error: "codex binary not found", code: "ENOENT" };
+      setCodexValidationCache(result);
+      return result;
+    }
     try {
       // Minimal read-only probe turn through the SDK to confirm auth works.
       const { Codex } = await import("@openai/codex-sdk");
@@ -123,16 +186,16 @@ function createAgentCliHelpers(ctx) {
         if (event?.type === "item.completed") break; // got a response, auth fine
       }
       if (failed) {
-        const result = { ok: false, checkedAt: now, error: failed.message || "Codex auth failed", code: undefined };
+        const result = { ok: false, checkedAt: now, codexPath, error: failed.message || "Codex auth failed", code: undefined };
         setCodexValidationCache(result);
         return result;
       }
-      const result = { ok: true, checkedAt: now, error: null };
+      const result = { ok: true, checkedAt: now, codexPath, error: null };
       setCodexValidationCache(result);
       return result;
     } catch (error) {
       const normalized = extractCodexError(error);
-      const result = { ok: false, checkedAt: now, error: normalized.message, code: normalized.code };
+      const result = { ok: false, checkedAt: now, codexPath, error: normalized.message, code: normalized.code };
       setCodexValidationCache(result);
       return result;
     }

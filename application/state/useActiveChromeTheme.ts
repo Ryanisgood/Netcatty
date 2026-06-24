@@ -7,6 +7,7 @@ import {
 import { runThemeTransition } from "./themeTransition";
 import { TERMINAL_THEMES } from "../../infrastructure/config/terminalThemes";
 import { netcattyBridge } from "../../infrastructure/services/netcattyBridge";
+import { resolveReadableForegroundForHsl } from "../../domain/colorContrast";
 
 function hexToHsl(hex: string): string {
   const r = parseInt(hex.slice(1, 3), 16) / 255;
@@ -79,8 +80,7 @@ function buildChromeCss(theme: TerminalTheme): string {
   const muted = adjustLightness(bg, isDark ? 10 : -8);
   const mutedFg = adjustSaturation(adjustLightness(fg, isDark ? -20 : 20), 0.5);
   const border = adjustLightness(bg, isDark ? 12 : -10);
-  const cursorLightness = parseFloat(cursor.split(" ")[2] ?? "50");
-  const primaryFg = cursorLightness > 55 ? "0 0% 0%" : "0 0% 100%";
+  const primaryFg = resolveReadableForegroundForHsl(cursor);
 
   const values = [
     bg, fg, card, fg,
@@ -208,10 +208,17 @@ function applyActiveChromeTheme(theme: TerminalTheme) {
     }
     style.textContent = getChromeCss(theme);
     root.dataset.activeChromeTheme = themeFingerprint(theme);
+    refreshActiveChromeThemeSurfaces(theme);
+  }, { mode: "instant" });
+}
+
+function refreshActiveChromeThemeSurfaces(theme: TerminalTheme) {
+  const targetClass = theme.type === "dark" ? "dark" : "light";
+  if (typeof window !== "undefined") {
     netcattyBridge.get()?.setTheme?.(targetClass);
     netcattyBridge.get()?.setBackgroundColor?.(theme.colors.background);
-    applyTopTabsChromeThemeVars(theme);
-  });
+  }
+  applyTopTabsChromeThemeVars(theme);
 }
 
 export function syncActiveChromeTheme(
@@ -220,7 +227,14 @@ export function syncActiveChromeTheme(
 ): void {
   const nextFingerprint = activeTheme ? themeFingerprint(activeTheme) : null;
   const appliedFingerprint = getAppliedChromeFingerprint();
-  if (nextFingerprint === appliedFingerprint) return;
+  if (nextFingerprint === appliedFingerprint) {
+    if (activeTheme) {
+      refreshActiveChromeThemeSurfaces(activeTheme);
+    } else {
+      clearTopTabsChromeThemeVars();
+    }
+    return;
+  }
 
   if (activeTheme) {
     applyActiveChromeTheme(activeTheme);
@@ -231,7 +245,7 @@ export function syncActiveChromeTheme(
   runThemeTransition(() => {
     removeActiveChromeTheme();
     applyAppTheme();
-  });
+  }, { mode: "instant" });
 }
 
 export function useActiveChromeTheme({

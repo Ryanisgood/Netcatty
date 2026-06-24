@@ -1,12 +1,50 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/exhaustive-deps */
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 
 import { terminalLayoutSuppressStore } from '../../application/state/terminalLayoutSuppressStore';
+import { AI_PANEL_FORCE_HIDE_SHELL } from '../ai/aiPanelDiagnostics';
+import { getTerminalSidePanelShellWidth } from './TerminalLayerSidePanelSection';
 
 type TerminalLayerEffectsContext = Record<string, any>;
 
 export function useTerminalLayerEffects(ctx: TerminalLayerEffectsContext) {
-  const { activeSidePanelTab, activeTabId, activeTabIdRef, activeTopTabsThemeId, activeWorkspace, activityTrackedSessions, appliedPreviewSessionRef, applyTerminalPreviewVars, applyTopTabsPreviewVars, cancelAnimationFrame, ChunkedEscapeFilter, clearTerminalPreviewVars, clearTimeout, clearTopTabsPreviewVars, document, dropHint, filterTabsMap, focusedSessionId, followAppTerminalTheme, getSessionActivityIdsToClear, handleToggleAiFromTopBar, handleToggleScriptsSidePanel, handleToggleSidePanel, hasNotifiableTerminalOutput, isFocusMode, isTerminalLayerVisible, lastSidePanelTabRef, Map, onSessionData, onSplitSessionRef, onToggleBroadcastRef, onToggleWorkspaceViewModeRef, prevFocusedSessionIdRef, previewTargetSessionId, refocusActiveTerminalSession, requestAnimationFrame, ResizeObserver, sessionActivityStore, sessions, Set, setAiMountedTabIds, setDropHint, setScriptsMountedTabIds, setSftpHostForTab, setSftpInitialLocationForTab, setSftpPendingUploadsForTab, setSidePanelOpenTabs, setThemeMountedTabIds, setThemePreview, setTimeout, setupMcpApprovalBridge, setWorkspaceArea, sftpActiveHost, sftpHostForTab, shouldMarkSessionActivity, sidePanelOpenTabs, splitHorizontalHandlersRef, splitVerticalHandlersRef, terminalRendererCwdBySessionRef, themeCommitTimerRef, themePreview, toggleScriptsSidePanelRef, toggleSidePanelRef, validAIScopeTargetIds, validSessionActivityIds, visibleFocusedThemeId, window, workspaceBroadcastHandlersRef, workspaceFocusHandlersRef, workspaceInnerRef, workspaces } = ctx;
+  const { activeSidePanelTab, activeTabId, activeTabIdRef, activeTopTabsThemeId, activeWorkspace, activityTrackedSessions, appliedPreviewSessionRef, applyHostTreePreviewVars, applyTerminalPreviewVars, applyTopTabsPreviewVars, cancelAnimationFrame, ChunkedEscapeFilter, clearHostTreePreviewVars, clearTerminalPreviewVars, clearTimeout, clearTopTabsPreviewVars, document, dropHint, filterTabsMap, focusedSessionId, followAppTerminalTheme, getSessionActivityIdsToClear, handleToggleAiFromTopBar, handleToggleScriptsSidePanel, handleToggleSidePanel, hasNotifiableTerminalOutput, isComposeBarOpen, isFocusMode, isTerminalLayerVisible, lastSidePanelTabRef, Map, onSessionData, onSplitSessionRef, onToggleBroadcastRef, onToggleWorkspaceViewModeRef, prevFocusedSessionIdRef, previewTargetSessionId, refocusActiveTerminalSession, requestAnimationFrame, ResizeObserver, sessionActivityStore, sessions, Set, setAiMountedTabIds, setDropHint, setNotesMountedTabIds, setScriptsMountedTabIds, setSystemMountedTabIds, setSftpHostForTab, setSftpInitialLocationForTab, setSftpPendingUploadsForTab, setSidePanelOpenTabs, setThemeMountedTabIds, setThemePreview, setTimeout, setupMcpApprovalBridge, setWorkspaceArea, sidePanelPosition, sidePanelWidth, sftpActiveHost, sftpHostForTab, shouldMarkSessionActivity, sidePanelOpenTabs, splitHorizontalHandlersRef, splitVerticalHandlersRef, terminalRendererCwdBySessionRef, themeCommitTimerRef, themePreview, toggleScriptsSidePanelRef, toggleSidePanelRef, validAIScopeTargetIds, validSessionActivityIds, visibleFocusedThemeId, window, workspaceBroadcastHandlersRef, workspaceFocusHandlersRef, workspaceInnerRef, workspaces } = ctx;
+
+  const activeWorkspaceId = activeWorkspace?.id;
+  const activeWorkspaceViewMode = activeWorkspace?.viewMode;
+
+  const isSidePanelOpenForCurrentTab = activeTabId ? sidePanelOpenTabs.has(activeTabId) : false;
+  const sidePanelShellWidth = getTerminalSidePanelShellWidth({
+    activeSidePanelTab,
+    forceHideAiShell: AI_PANEL_FORCE_HIDE_SHELL,
+    isSidePanelOpenForCurrentTab,
+    resizePreviewWidth: null,
+    sidePanelWidth,
+  });
+
+  const activityEscapeFiltersRef = useRef<any>(new Map());
+  const previousFollowAppTerminalThemeRef = useRef(followAppTerminalTheme);
+
+  const remeasureWorkspaceArea = useCallback(() => {
+    const el = workspaceInnerRef.current;
+    if (!el) return;
+    const width = el.clientWidth;
+    const height = el.clientHeight;
+    if (width <= 0 || height <= 0) return;
+    setWorkspaceArea((prev) => (
+      prev.width === width && prev.height === height
+        ? prev
+        : { width, height }
+    ));
+  }, [setWorkspaceArea, workspaceInnerRef]);
+
+  const scheduleWorkspaceAreaRemeasure = useCallback(() => {
+    remeasureWorkspaceArea();
+    requestAnimationFrame(() => {
+      remeasureWorkspaceArea();
+      requestAnimationFrame(remeasureWorkspaceArea);
+    });
+  }, [remeasureWorkspaceArea, requestAnimationFrame]);
 
   useEffect(() => {
       const liveSessionIds = new Set(sessions.map((session) => session.id));
@@ -85,7 +123,9 @@ export function useTerminalLayerEffects(ctx: TerminalLayerEffectsContext) {
       setSftpInitialLocationForTab(prev => filterTabsMap(prev, validAIScopeTargetIds));
       setSftpPendingUploadsForTab(prev => filterTabsMap(prev, validAIScopeTargetIds));
       setAiMountedTabIds((prev) => prev.filter((tabId) => validAIScopeTargetIds.has(tabId)));
+      setNotesMountedTabIds((prev) => prev.filter((tabId) => validAIScopeTargetIds.has(tabId)));
       setScriptsMountedTabIds((prev) => prev.filter((tabId) => validAIScopeTargetIds.has(tabId)));
+      setSystemMountedTabIds((prev) => prev.filter((tabId) => validAIScopeTargetIds.has(tabId)));
       setThemeMountedTabIds((prev) => prev.filter((tabId) => validAIScopeTargetIds.has(tabId)));
       sessionActivityStore.prune(validSessionActivityIds);
     }, [validSessionActivityIds, validAIScopeTargetIds]);
@@ -94,16 +134,10 @@ export function useTerminalLayerEffects(ctx: TerminalLayerEffectsContext) {
       if (!workspaceInnerRef.current) return;
       const el = workspaceInnerRef.current;
       const updateSize = () => {
-        const width = el.clientWidth;
-        const height = el.clientHeight;
         // Ignore zero-size reads while the layer is hidden so split rects are
         // not recomputed from a 1×1 fallback until the real layout is available.
-        if (width <= 0 || height <= 0) return;
-        setWorkspaceArea((prev) => (
-          prev.width === width && prev.height === height
-            ? prev
-            : { width, height }
-        ));
+        if (!isTerminalLayerVisible) return;
+        remeasureWorkspaceArea();
       };
       updateSize();
       const observer = new ResizeObserver(() => updateSize());
@@ -111,31 +145,30 @@ export function useTerminalLayerEffects(ctx: TerminalLayerEffectsContext) {
       // Re-measure when a drag ends so pane rects match the committed layout.
       const unsubscribeSuppress = terminalLayoutSuppressStore.subscribe(() => {
         if (!terminalLayoutSuppressStore.getActive()) {
-          updateSize();
+          scheduleWorkspaceAreaRemeasure();
         }
       });
       return () => {
         unsubscribeSuppress();
         observer.disconnect();
       };
-    }, [isTerminalLayerVisible]);
+    }, [isTerminalLayerVisible, remeasureWorkspaceArea, scheduleWorkspaceAreaRemeasure, workspaceInnerRef]);
 
+  // Discrete layout changes (side panel toggle, compose bar, workspace tab/view mode)
+  // can miss a ResizeObserver tick; host-tree width is handled by the observer
+  // because it updates continuously during drag.
   useEffect(() => {
-      if (!isTerminalLayerVisible || !workspaceInnerRef.current) return;
-      const el = workspaceInnerRef.current;
-      const updateSize = () => {
-        const width = el.clientWidth;
-        const height = el.clientHeight;
-        if (width <= 0 || height <= 0) return;
-        setWorkspaceArea((prev) => (
-          prev.width === width && prev.height === height
-            ? prev
-            : { width, height }
-        ));
-      };
-      updateSize();
-      requestAnimationFrame(updateSize);
-    }, [activeWorkspace, isTerminalLayerVisible]);
+      if (!isTerminalLayerVisible) return;
+      scheduleWorkspaceAreaRemeasure();
+    }, [
+      activeWorkspaceId,
+      activeWorkspaceViewMode,
+      isComposeBarOpen,
+      isTerminalLayerVisible,
+      scheduleWorkspaceAreaRemeasure,
+      sidePanelPosition,
+      sidePanelShellWidth,
+    ]);
   
   // Keep sftpHostForTab in sync with focus changes in workspace mode
     // so that the toggle check uses the currently displayed host.
@@ -190,12 +223,26 @@ export function useTerminalLayerEffects(ctx: TerminalLayerEffectsContext) {
     }, [activeTabId, sessions]);
   
   useEffect(() => {
+      const activeSessionIds = new Set(activityTrackedSessions.map((session) => session.id));
+      for (const sessionId of activityEscapeFiltersRef.current.keys()) {
+        if (!activeSessionIds.has(sessionId)) {
+          activityEscapeFiltersRef.current.delete(sessionId);
+        }
+      }
+
       const unsubscribers = activityTrackedSessions.map((session) => {
-        const filter = new ChunkedEscapeFilter();
+        let filter = activityEscapeFiltersRef.current.get(session.id);
+        if (!filter) {
+          filter = new ChunkedEscapeFilter();
+          activityEscapeFiltersRef.current.set(session.id, filter);
+        }
         return onSessionData(session.id, (chunk) => {
-          if (!hasNotifiableTerminalOutput(filter, chunk)) return;
-  
+          const hasNotifiableOutput = hasNotifiableTerminalOutput(filter, chunk);
+          if (!hasNotifiableOutput) return;
           if (!shouldMarkSessionActivity(activeTabIdRef.current, session)) {
+            return;
+          }
+          if (sessionActivityStore.getSnapshot()[session.id]) {
             return;
           }
   
@@ -216,6 +263,7 @@ export function useTerminalLayerEffects(ctx: TerminalLayerEffectsContext) {
           clearTimeout(themeCommitTimerRef.current);
         }
         clearTerminalPreviewVars(appliedPreviewSessionRef.current);
+        clearHostTreePreviewVars();
         clearTopTabsPreviewVars();
       };
     }, []);
@@ -232,9 +280,12 @@ export function useTerminalLayerEffects(ctx: TerminalLayerEffectsContext) {
   
       if (themePreview.targetSessionId && themePreview.themeId) {
         applyTerminalPreviewVars(themePreview.targetSessionId, themePreview.themeId);
+        applyHostTreePreviewVars(themePreview.themeId);
         appliedPreviewSessionRef.current = themePreview.targetSessionId;
+      } else {
+        clearHostTreePreviewVars();
       }
-    }, [applyTerminalPreviewVars, themePreview]);
+    }, [applyHostTreePreviewVars, applyTerminalPreviewVars, themePreview]);
   
   useLayoutEffect(() => {
       if (!isTerminalLayerVisible) {
@@ -250,7 +301,9 @@ export function useTerminalLayerEffects(ctx: TerminalLayerEffectsContext) {
     }, [activeTopTabsThemeId, applyTopTabsPreviewVars, isTerminalLayerVisible]);
   
   useEffect(() => {
-      if (!followAppTerminalTheme) return;
+      const didChangeFollowTheme = followAppTerminalTheme !== previousFollowAppTerminalThemeRef.current;
+      previousFollowAppTerminalThemeRef.current = followAppTerminalTheme;
+      if (!didChangeFollowTheme) return;
       if (themeCommitTimerRef.current) {
         clearTimeout(themeCommitTimerRef.current);
         themeCommitTimerRef.current = null;
@@ -260,11 +313,12 @@ export function useTerminalLayerEffects(ctx: TerminalLayerEffectsContext) {
         clearTerminalPreviewVars(appliedSessionId);
         appliedPreviewSessionRef.current = null;
       }
+      clearHostTreePreviewVars();
       clearTopTabsPreviewVars();
       if (themePreview.targetSessionId || themePreview.themeId) {
         setThemePreview({ targetSessionId: null, themeId: null });
       }
-    }, [followAppTerminalTheme, themePreview.targetSessionId, themePreview.themeId]);
+    }, [followAppTerminalTheme]);
   
   useEffect(() => {
       const panelOpen = activeSidePanelTab === 'theme' && !!previewTargetSessionId;
@@ -281,6 +335,7 @@ export function useTerminalLayerEffects(ctx: TerminalLayerEffectsContext) {
         clearTerminalPreviewVars(appliedSessionId);
         appliedPreviewSessionRef.current = null;
       }
+      clearHostTreePreviewVars();
       if (themePreview.targetSessionId || themePreview.themeId) {
         setThemePreview({ targetSessionId: null, themeId: null });
       }
@@ -292,6 +347,7 @@ export function useTerminalLayerEffects(ctx: TerminalLayerEffectsContext) {
         themePreview.themeId &&
         themePreview.themeId === visibleFocusedThemeId
       ) {
+        clearHostTreePreviewVars();
         setThemePreview({ targetSessionId: null, themeId: null });
       }
     }, [previewTargetSessionId, themePreview, visibleFocusedThemeId]);

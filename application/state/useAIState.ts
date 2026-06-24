@@ -17,7 +17,10 @@ import {
   STORAGE_KEY_AI_AGENT_MODEL_MAP,
   STORAGE_KEY_AI_AGENT_PROVIDER_MAP,
   STORAGE_KEY_AI_WEB_SEARCH,
+  STORAGE_KEY_AI_QUICK_MESSAGES,
 } from '../../infrastructure/config/storageKeys';
+import type { AIQuickMessage } from '../../infrastructure/ai/quickMessages';
+import { sanitizeQuickMessages } from '../../infrastructure/ai/quickMessages';
 import type {
   AIDraft,
   AISession,
@@ -35,6 +38,8 @@ import {
   activateDraftView,
   clearScopeDraftState,
   ensureDraftForScopeState,
+  pruneStaleSessionPanelViews,
+  setDraftView,
   setSessionView,
   updateDraftForScope,
 } from './aiDraftState';
@@ -110,7 +115,9 @@ export function useAIState() {
 
   // ── Sessions ──
   const [sessions, setSessionsRaw] = useState<AISession[]>(() =>
-    localStorageAdapter.read<AISession[]>(STORAGE_KEY_AI_SESSIONS) ?? []
+    latestAISessionsSnapshot
+      ?? localStorageAdapter.read<AISession[]>(STORAGE_KEY_AI_SESSIONS)
+      ?? []
   );
   // Ref that always holds the latest sessions for use inside debounced callbacks
   const sessionsRef = useRef(sessions);
@@ -119,7 +126,9 @@ export function useAIState() {
   }, [sessions]);
   // Per-scope active session: keyed by `${scopeType}:${scopeTargetId}`
   const [activeSessionIdMap, setActiveSessionIdMapRaw] = useState<Record<string, string | null>>(() =>
-    localStorageAdapter.read<Record<string, string | null>>(STORAGE_KEY_AI_ACTIVE_SESSION_MAP) ?? {}
+    latestAIActiveSessionMapSnapshot
+      ?? localStorageAdapter.read<Record<string, string | null>>(STORAGE_KEY_AI_ACTIVE_SESSION_MAP)
+      ?? {}
   );
   // Per-scope draft/view state is intentionally memory-only so a relaunch
   // does not restore stale composer input or panel intent against new history.
@@ -158,6 +167,11 @@ export function useAIState() {
     localStorageAdapter.read<WebSearchConfig>(STORAGE_KEY_AI_WEB_SEARCH) ?? null
   );
 
+  // ── Quick Messages (slash prompts) ──
+  const [quickMessages, setQuickMessagesRaw] = useState<AIQuickMessage[]>(() =>
+    sanitizeQuickMessages(localStorageAdapter.read<unknown>(STORAGE_KEY_AI_QUICK_MESSAGES)),
+  );
+
   useEffect(() => {
     setLatestAISessionsSnapshot(sessions);
   }, [sessions]);
@@ -175,7 +189,7 @@ export function useAIState() {
   }, [panelViewByScope]);
 
   useEffect(() => {
-    const validSessionIds = new Set(sessions.map((session) => session.id));
+    const validSessionIds = new Set<string>(sessions.map((session) => session.id));
     let changed = false;
     const nextActiveSessionIdMap: Record<string, string | null> = {};
 
@@ -187,12 +201,22 @@ export function useAIState() {
       }
     }
 
-    if (!changed) return;
+    if (changed) {
+      setLatestAIActiveSessionMapSnapshot(nextActiveSessionIdMap);
+      localStorageAdapter.write(STORAGE_KEY_AI_ACTIVE_SESSION_MAP, nextActiveSessionIdMap);
+      setActiveSessionIdMapRaw(nextActiveSessionIdMap);
+      emitAIStateChanged(STORAGE_KEY_AI_ACTIVE_SESSION_MAP);
+    }
 
-    setLatestAIActiveSessionMapSnapshot(nextActiveSessionIdMap);
-    localStorageAdapter.write(STORAGE_KEY_AI_ACTIVE_SESSION_MAP, nextActiveSessionIdMap);
-    setActiveSessionIdMapRaw(nextActiveSessionIdMap);
-    emitAIStateChanged(STORAGE_KEY_AI_ACTIVE_SESSION_MAP);
+    setPanelViewByScopeRaw((prev) => {
+      const next = pruneStaleSessionPanelViews(prev, validSessionIds);
+      if (next === prev) {
+        return prev;
+      }
+      setLatestAIPanelViewByScopeSnapshot(next);
+      emitAIStateChanged(AI_STATE_CHANGED_PANEL_VIEW_BY_SCOPE);
+      return next;
+    });
   }, [sessions, activeSessionIdMap]);
 
   const setActiveSessionId = useCallback((scopeKey: string, id: string | null) => {
@@ -261,6 +285,16 @@ export function useAIState() {
     } else {
       localStorageAdapter.remove(STORAGE_KEY_AI_WEB_SEARCH);
     }
+  }, []);
+
+  const setQuickMessages = useCallback((value: AIQuickMessage[] | ((prev: AIQuickMessage[]) => AIQuickMessage[])) => {
+    setQuickMessagesRaw((prev) => {
+      const nextRaw = typeof value === 'function' ? value(prev) : value;
+      const next = sanitizeQuickMessages(nextRaw);
+      localStorageAdapter.write(STORAGE_KEY_AI_QUICK_MESSAGES, next);
+      emitAIStateChanged(STORAGE_KEY_AI_QUICK_MESSAGES);
+      return next;
+    });
   }, []);
 
   // ── Persist helpers ──
@@ -454,6 +488,11 @@ export function useAIState() {
           case STORAGE_KEY_AI_WEB_SEARCH:
             setWebSearchConfigRaw(localStorageAdapter.read<WebSearchConfig>(STORAGE_KEY_AI_WEB_SEARCH) ?? null);
             break;
+          case STORAGE_KEY_AI_QUICK_MESSAGES: {
+            const messages = localStorageAdapter.read<unknown>(STORAGE_KEY_AI_QUICK_MESSAGES);
+            setQuickMessagesRaw(sanitizeQuickMessages(messages));
+            break;
+          }
         }
       } catch (err) {
         console.warn('[useAIState] Cross-window sync: failed to process storage event for key', e.key, err);
@@ -592,6 +631,19 @@ export function useAIState() {
           return next;
         }
         return prev;
+      });
+      setPanelViewByScopeRaw((prev) => {
+        const currentPanelView = prev[scopeKey];
+        if (currentPanelView?.mode !== 'session' || currentPanelView.sessionId !== sessionId) {
+          return prev;
+        }
+        const next = setDraftView(prev, scopeKey);
+        if (next === prev) {
+          return prev;
+        }
+        setLatestAIPanelViewByScopeSnapshot(next);
+        emitAIStateChanged(AI_STATE_CHANGED_PANEL_VIEW_BY_SCOPE);
+        return next;
       });
     }
   }, [persistSessions]);
@@ -974,6 +1026,8 @@ export function useAIState() {
     setAgentProvider,
     webSearchConfig,
     setWebSearchConfig,
+    quickMessages,
+    setQuickMessages,
     sessions,
     activeSessionIdMap,
     draftsByScope,
@@ -1029,6 +1083,8 @@ export function useAIState() {
     setAgentProvider,
     webSearchConfig,
     setWebSearchConfig,
+    quickMessages,
+    setQuickMessages,
     sessions,
     activeSessionIdMap,
     draftsByScope,

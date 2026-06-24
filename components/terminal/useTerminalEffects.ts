@@ -1,6 +1,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/exhaustive-deps */
 import { useRef } from 'react';
 import { resolveFontWeightBold } from '../../lib/fontWeightAvailability';
+import { resolveXTermScrollback } from '../../infrastructure/config/xtermPerformance';
+import { shouldInterceptMouseTrackingContextMenu } from './runtime/middleClickBehavior';
+import {
+  hasOpenAppDialog,
+  TERMINAL_SESSION_RESTORE_FOCUS_EVENT,
+  type TerminalSessionRestoreFocusDetail,
+} from './focusTerminalSession';
+import { applyUserCursorBlinkPreference } from './runtime/cursorPreference';
 
 type TerminalEffectsContext = Record<string, any>;
 
@@ -8,6 +16,15 @@ type SelectionOverlayPosition = {
   left: number;
   top: number;
 } | null;
+
+const areSelectionOverlayPositionsEqual = (
+  a: SelectionOverlayPosition,
+  b: SelectionOverlayPosition,
+): boolean => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.left === b.left && a.top === b.top;
+};
 
 export function resolveSelectionOverlayPosition(term: any, container: HTMLElement | null): SelectionOverlayPosition {
   if (!container || !term?.getSelectionPosition || !term.getSelection()) return null;
@@ -48,7 +65,7 @@ export function resolveSelectionOverlayPosition(term: any, container: HTMLElemen
 }
 
 export function useTerminalEffects(ctx: TerminalEffectsContext) {
-  const { CONNECTION_TIMEOUT, Error, XTERM_PERFORMANCE_CONFIG, applyUserCursorPreference, auth, autocompleteCloseRef, autocompleteInputRef, autocompleteKeyEventRef, captureTerminalLogData, clearTerminalCwd, commandBufferRef, connectionLogBufferRef, containerRef, createPromptLineBreakState, createReplaySafeTerminalLogSanitizer, createXTermRuntime, effectiveFontSize, effectiveFontWeight, effectiveTheme, error, executeSnippetCommand, fitAddonRef, fontFamilyId, fontSize, fontWeightFixupDoneRef, forceSyncRenderAfterResize, handleOsc52ReadRequest, handleTerminalDataCaptureOnce, hasConnectedRef, host, hotkeySchemeRef, identities, inWorkspace, isBootActiveRef, isBroadcastEnabledRef, isFocusMode, isFocused, isLocalConnection, isNetworkDevice, isResizing, isRestoringSelectionRef, isSearchOpen, isSerialConnection, isVisible, isVisibleRef, keyBindingsRef, keys, knownCwdRef, lastFittedSizeRef, lastToastedErrorRef, logger, mouseTrackingRef, onBroadcastInputRef, onCommandExecuted, onCommandSubmitted, onHotkeyActionRef, onSnippetExecutorChange, onTerminalCwdChange, onTerminalFontSizeChange, paneLayoutKey, pendingAuthRef, pendingOutputScrollRef, prevIsResizingRef, promptLineBreakStateRef, resizeSession, resolveHostAuth, resolvedFontFamily, safeFit, searchAddonRef, serialConfig, serialLineBufferRef, serializeAddonRef, sessionId, sessionRef, sessionStarters, setError, setHasMouseTracking, setHasSelection, setIsCancelling, setIsDisconnectedDialogDismissed, setIsSearchOpen, setNeedsHostKeyVerification, setPendingHostKeyInfo, setPendingHostKeyRequestId, setProgressLogs, setProgressValue, setSelectionOverlayPosition, setShowLogs, setStatus, setTimeLeft, shouldEnableNativeUserInputAutoScroll, shouldProbeSessionCwd, onSnippetShortkeyRef, snippetsRef, status, statusRef, sudoAutofillRef, t, teardown, termRef, terminalAltKeyOptions, terminalBackend, terminalContextActionsRef, terminalCwdTracker, terminalDataCapturedRef, terminalLogSanitizerRef, terminalSettings, terminalSettingsRef, toHostKeyInfo, toast, updateStatus, useEffect, useLayoutEffect, xtermRuntimeRef, zmodem, zmodemToastedRef } = ctx;
+  const { CONNECTION_TIMEOUT, Error, XTERM_PERFORMANCE_CONFIG, applyUserCursorPreference, auth, autocompleteCloseRef, autocompleteInputRef, autocompleteKeyEventRef, captureTerminalLogData, clearTerminalCwd, commandBufferRef, connectionLogBufferRef, containerRef, createPromptLineBreakState, createReplaySafeTerminalLogSanitizer, createXTermRuntime, deferTerminalResizeRef, disableTerminalFontZoomRef, effectiveFontSize, effectiveFontWeight, effectiveTheme, error, executeSnippetCommand, fitAddonRef, fontFamilyId, fontSize, fontWeightFixupDoneRef, forceCloseHibernatedSession, forceSyncRenderAfterResize, handleOsc52ReadRequest, handleTerminalDataCaptureOnce, hasConnectedRef, hasRuntimeRef, host, hotkeySchemeRef, hibernatedRef, identities, inWorkspace, isBootActiveRef, isBroadcastEnabledRef, isComposeBarOpen, isFocusMode, isFocused, isLocalConnection, isNetworkDevice, isResizing, isRestoringSelectionRef, isSearchOpen, isSerialConnection, isVisible, isVisibleRef, keyBindingsRef, keys, knownCwdRef, lastFittedSizeRef, lastToastedErrorRef, logger, mouseTrackingRef, onBroadcastInputRef, onCommandExecuted, onCommandSubmitted, onHotkeyActionRef, onSnippetExecutorChange, onTerminalCwdChange, onTerminalTitleChange, onTerminalBell, onTerminalFontSizeChange, paneLayoutKey, pendingAuthRef, pendingOutputScrollRef, prepareRestoredReconnect, prevIsResizingRef, promptLineBreakStateRef, resizeSession, resolveHostAuth, resolvedFontFamily, safeFit, searchAddonRef, serialConfig, serialLineBufferRef, serializeAddonRef, sessionId, sessionRef, sessionStarters, setError, setHasMouseTracking, setHasSelection, setIsCancelling, setIsDisconnectedDialogDismissed, setIsSearchOpen, setNeedsHostKeyVerification, setPendingHostKeyInfo, setPendingHostKeyRequestId, setProgressLogs, setProgressValue, setSelectionOverlayPosition, setShowLogs, setStatus, setTimeLeft, shouldEnableNativeUserInputAutoScroll, shouldProbeSessionCwd, shouldStartTerminalBackend, onSnippetShortkeyRef, snippetsRef, status, statusRef, sudoAutofillRef, t, teardown, termRef, terminalAltKeyOptions, terminalBackend, terminalContextActionsRef, terminalCwdTracker, terminalDataCapturedRef, terminalLogSanitizerRef, terminalSettings, terminalSettingsRef, toHostKeyInfo, toast, updateStatus, useEffect, useLayoutEffect, xtermRuntimeRef, zmodem, zmodemToastedRef, restoreState } = ctx;
 
   // Remember the last layout we successfully refit while visible so revisiting
   // the same workspace tab does not replay expensive force-fit/WebGL recovery.
@@ -239,6 +256,7 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
           terminalBackend,
           sessionRef,
           hotkeySchemeRef,
+          disableTerminalFontZoomRef,
           keyBindingsRef,
           onHotkeyActionRef,
           onTerminalFontSizeChange,
@@ -264,10 +282,17 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
             knownCwdRef.current = cwd;
             onTerminalCwdChange?.(sessionId, cwd);
           },
+          onTitleChange: (title: string | null) => {
+            onTerminalTitleChange?.(sessionId, title);
+          },
+          onBell: () => {
+            onTerminalBell?.(sessionId);
+          },
           onOsc52ReadRequest: handleOsc52ReadRequest,
           // Autocomplete integration
           onAutocompleteKeyEvent: (e: KeyboardEvent) => autocompleteKeyEventRef.current?.(e) ?? true,
           onAutocompleteInput: (data: string) => autocompleteInputRef.current?.(data),
+          terminalContextActionsRef,
           isRestoringSelectionRef,
           // Defer WebGL context creation for panes that mount hidden (e.g. the
           // background tabs of a batch connect) until they first become visible.
@@ -284,6 +309,13 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
         fitAddonRef.current = runtime.fitAddon;
         serializeAddonRef.current = runtime.serializeAddon;
         searchAddonRef.current = runtime.searchAddon;
+        hasRuntimeRef.current = true;
+        // xterm boots asynchronously; ResizeObserver may have already run without
+        // fitAddon and will not re-attach until isVisible/isResizing changes.
+        setTimeout(() => {
+          if (disposed) return;
+          safeFit({ force: true, requireVisible: true });
+        }, 0);
 
         // Apply merged keyword highlight rules immediately after runtime creation
         // This fixes a timing issue where the useEffect for keyword highlighting
@@ -302,29 +334,45 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
         runtime.keywordHighlighter.setRules(mergedRules, isEnabled);
 
         const term = runtime.term;
+        const restoredReconnect = restoreState === "restored-disconnected";
+        if (restoredReconnect) {
+          prepareRestoredReconnect?.();
+        }
+        const setBackendConnectingStatus = () => {
+          if (restoredReconnect) {
+            updateStatus("connecting");
+          } else {
+            setStatus("connecting");
+          }
+        };
+
+        if (!shouldStartTerminalBackend()) {
+          isBootActiveRef.current = false;
+          return;
+        }
 
         if (host.protocol === "serial") {
-          setStatus("connecting");
+          setBackendConnectingStatus();
           setProgressLogs(["Initializing serial connection..."]);
           await sessionStarters.startSerial(term);
           if (disposed) return;
         } else if (host.protocol === "local" || host.hostname === "localhost") {
-          setStatus("connecting");
+          setBackendConnectingStatus();
           setProgressLogs(["Initializing local shell..."]);
           await sessionStarters.startLocal(term);
           if (disposed) return;
         } else if (host.protocol === "telnet") {
-          setStatus("connecting");
+          setBackendConnectingStatus();
           setProgressLogs(["Initializing Telnet connection..."]);
           await sessionStarters.startTelnet(term);
           if (disposed) return;
         } else if (host.moshEnabled) {
-          setStatus("connecting");
+          setBackendConnectingStatus();
           setProgressLogs(["Initializing Mosh connection..."]);
           await sessionStarters.startMosh(term);
           if (disposed) return;
         } else if (host.etEnabled) {
-          setStatus("connecting");
+          setBackendConnectingStatus();
           setProgressLogs(["Initializing EternalTerminal connection..."]);
           await sessionStarters.startEt(term);
           if (disposed) return;
@@ -345,7 +393,7 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
             return;
           }
 
-          setStatus("connecting");
+          setBackendConnectingStatus();
           setProgressLogs(["Initializing secure channel..."]);
           await sessionStarters.startSSH(term);
           if (disposed) return;
@@ -363,6 +411,10 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
     return () => {
       disposed = true;
       isBootActiveRef.current = false;
+      if (hibernatedRef?.current) {
+        forceCloseHibernatedSession?.();
+        return;
+      }
       if (!terminalDataCapturedRef.current && serializeAddonRef.current) {
         try {
           const terminalData = serializeAddonRef.current.serialize();
@@ -375,7 +427,7 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
       teardown();
     };
      
-  }, [handleTerminalDataCaptureOnce, host.id, sessionId]);
+  }, [forceCloseHibernatedSession, handleTerminalDataCaptureOnce, host.id, sessionId]);
 
 
   // Connection timeline and timeout visuals
@@ -422,83 +474,97 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
   }, [status]);
 
 
-  // Sync xterm theme before browser paint so canvas + DOM CSS vars update in the same frame
+  // Sync xterm theme before browser paint and force the renderer to catch up so
+  // split panes do not visibly repaint one after another.
   useLayoutEffect(() => {
-    if (termRef.current) {
-      termRef.current.options.theme = {
-        ...effectiveTheme.colors,
-        selectionBackground: effectiveTheme.colors.selection,
-        scrollbarSliderBackground: effectiveTheme.colors.foreground + '33',
-        scrollbarSliderHoverBackground: effectiveTheme.colors.foreground + '66',
-        scrollbarSliderActiveBackground: effectiveTheme.colors.foreground + '80',
-      };
-    }
+    const term = termRef.current;
+    if (!term) return;
+    term.options.theme = {
+      ...effectiveTheme.colors,
+      selectionBackground: effectiveTheme.colors.selection,
+      scrollbarSliderBackground: effectiveTheme.colors.foreground + '33',
+      scrollbarSliderHoverBackground: effectiveTheme.colors.foreground + '66',
+      scrollbarSliderActiveBackground: effectiveTheme.colors.foreground + '80',
+    };
+    forceSyncRenderAfterResize(term);
   }, [effectiveTheme]);
 
 
+  // Keep font-size sync separate from terminalSettings so unrelated setting
+  // updates (or focus/layout re-renders) do not reset a wheel/Ctrl zoom that
+  // has not yet propagated into React props.
   useEffect(() => {
-    if (termRef.current) {
-      termRef.current.options.fontSize = effectiveFontSize;
-      termRef.current.options.fontFamily = resolvedFontFamily;
+    if (!termRef.current) return;
+    termRef.current.options.fontSize = effectiveFontSize;
+    xtermRuntimeRef.current?.clearTextureAtlas();
+    if (isVisibleRef.current) {
+      setTimeout(() => safeFit({ force: true, requireVisible: true }), 50);
+    } else {
+      lastFittedSizeRef.current = null;
+    }
+  }, [effectiveFontSize]);
 
-      if (terminalSettings) {
-        applyUserCursorPreference(termRef.current, terminalSettings);
-        termRef.current.options.scrollback = terminalSettings.scrollback === 0 ? 999999 : terminalSettings.scrollback;
-        termRef.current.options.fontWeight = effectiveFontWeight as
-          | 100
-          | 200
-          | 300
-          | 400
-          | 500
-          | 600
-          | 700
-          | 800
-          | 900;
-        const resolvedFontWeightBold = resolveFontWeightBold({
-          fontFamilyCss: termRef.current?.options.fontFamily || "",
-          normalWeight: effectiveFontWeight,
-          desiredBoldWeight: terminalSettings.fontWeightBold,
-          fontSize: effectiveFontSize,
-        });
+  useEffect(() => {
+    if (!termRef.current) return;
+    termRef.current.options.fontFamily = resolvedFontFamily;
 
-        termRef.current.options.fontWeightBold = resolvedFontWeightBold as
-          | 100
-          | 200
-          | 300
-          | 400
-          | 500
-          | 600
-          | 700
-          | 800
-          | 900;
-        termRef.current.options.lineHeight = 1 + terminalSettings.linePadding / 10;
-        termRef.current.options.drawBoldTextInBrightColors =
-          terminalSettings.drawBoldInBrightColors;
-        termRef.current.options.minimumContrastRatio =
-          terminalSettings.minimumContrastRatio;
-        termRef.current.options.smoothScrollDuration =
-          terminalSettings.smoothScrolling
-            ? XTERM_PERFORMANCE_CONFIG.rendering.smoothScrollDuration
-            : 0;
-        termRef.current.options.scrollOnUserInput =
-          shouldEnableNativeUserInputAutoScroll(terminalSettings);
-        const altKeyOpts = terminalAltKeyOptions(terminalSettings.altAsMeta);
-        termRef.current.options.macOptionIsMeta = altKeyOpts.macOptionIsMeta;
-        termRef.current.options.altClickMovesCursor = altKeyOpts.altClickMovesCursor;
-        termRef.current.options.wordSeparator = terminalSettings.wordSeparators;
-        termRef.current.options.ignoreBracketedPasteMode = terminalSettings.disableBracketedPaste ?? false;
-      }
+    if (terminalSettings) {
+      applyUserCursorPreference(termRef.current, terminalSettings);
+      termRef.current.options.scrollback = resolveXTermScrollback(terminalSettings.scrollback);
+      termRef.current.options.fontWeight = effectiveFontWeight as
+        | 100
+        | 200
+        | 300
+        | 400
+        | 500
+        | 600
+        | 700
+        | 800
+        | 900;
+      const resolvedFontWeightBold = resolveFontWeightBold({
+        fontFamilyCss: termRef.current?.options.fontFamily || "",
+        normalWeight: effectiveFontWeight,
+        desiredBoldWeight: terminalSettings.fontWeightBold,
+        fontSize: effectiveFontSize,
+      });
 
-      // Changing the font can leave the WebGL renderer drawing stale glyphs from
-      // the old metrics (xterm.js #3280), surfacing as garbled text (issue #1049).
-      // Clear the texture atlas so glyphs re-rasterize with the new font.
-      xtermRuntimeRef.current?.clearTextureAtlas();
+      termRef.current.options.fontWeightBold = resolvedFontWeightBold as
+        | 100
+        | 200
+        | 300
+        | 400
+        | 500
+        | 600
+        | 700
+        | 800
+        | 900;
+      termRef.current.options.lineHeight = 1 + terminalSettings.linePadding / 10;
+      termRef.current.options.drawBoldTextInBrightColors =
+        terminalSettings.drawBoldInBrightColors;
+      termRef.current.options.minimumContrastRatio =
+        terminalSettings.minimumContrastRatio;
+      termRef.current.options.smoothScrollDuration =
+        terminalSettings.smoothScrolling
+          ? XTERM_PERFORMANCE_CONFIG.rendering.smoothScrollDuration
+          : 0;
+      termRef.current.options.scrollOnUserInput =
+        shouldEnableNativeUserInputAutoScroll(terminalSettings);
+      const altKeyOpts = terminalAltKeyOptions(terminalSettings.altAsMeta);
+      termRef.current.options.macOptionIsMeta = altKeyOpts.macOptionIsMeta;
+      termRef.current.options.altClickMovesCursor = altKeyOpts.altClickMovesCursor;
+      termRef.current.options.wordSeparator = terminalSettings.wordSeparators;
+      termRef.current.options.ignoreBracketedPasteMode = terminalSettings.disableBracketedPaste ?? false;
+    }
 
-      if (isVisibleRef.current) {
-        setTimeout(() => safeFit({ force: true, requireVisible: true }), 50);
-      } else {
-        lastFittedSizeRef.current = null;
-      }
+    // Changing the font can leave the WebGL renderer drawing stale glyphs from
+    // the old metrics (xterm.js #3280), surfacing as garbled text (issue #1049).
+    // Clear the texture atlas so glyphs re-rasterize with the new font.
+    xtermRuntimeRef.current?.clearTextureAtlas();
+
+    if (isVisibleRef.current) {
+      setTimeout(() => safeFit({ force: true, requireVisible: true }), 50);
+    } else {
+      lastFittedSizeRef.current = null;
     }
   }, [effectiveFontSize, effectiveFontWeight, resolvedFontFamily, terminalSettings]);
 
@@ -515,6 +581,49 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
       });
     }
   };
+
+  const layoutRecoveryTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const clearLayoutRecoveryTimers = () => {
+    for (const timerId of layoutRecoveryTimersRef.current) {
+      clearTimeout(timerId);
+    }
+    layoutRecoveryTimersRef.current = [];
+  };
+
+  // Re-fit after the app returns from the background, macOS fullscreen toggles,
+  // or other layout changes that do not reliably fire window.resize /
+  // ResizeObserver (common after App Nap / GPU context eviction).
+  const scheduleLayoutRecoveryRefit = (delaysMs: number[] = [0, 100, 350]) => {
+    clearLayoutRecoveryTimers();
+    for (const delayMs of delaysMs) {
+      const timerId = setTimeout(() => {
+        layoutRecoveryTimersRef.current = layoutRecoveryTimersRef.current.filter((id) => id !== timerId);
+        if (!isVisibleRef.current) return;
+        runImmediateRefit({ force: true });
+      }, delayMs);
+      layoutRecoveryTimersRef.current.push(timerId);
+    }
+  };
+
+  useEffect(() => {
+    const handleRestoreFocus = (event: Event) => {
+      const detail = (event as CustomEvent<TerminalSessionRestoreFocusDetail>).detail;
+      if (detail?.sessionId !== sessionId) return;
+      if (!isVisibleRef.current) return;
+
+      const term = termRef.current;
+      if (!term) return;
+
+      applyUserCursorBlinkPreference(term, terminalSettingsRef.current);
+      if (hasOpenAppDialog()) return;
+      term.focus();
+      scheduleLayoutRecoveryRefit([0, 100]);
+    };
+
+    window.addEventListener(TERMINAL_SESSION_RESTORE_FOCUS_EVENT, handleRestoreFocus);
+    return () => window.removeEventListener(TERMINAL_SESSION_RESTORE_FOCUS_EVENT, handleRestoreFocus);
+  }, [sessionId]);
 
   const shouldRefitImmediatelyOnShow = () => (
     !inWorkspace || isFocusMode || isFocused
@@ -615,6 +724,7 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
       // same recovery a resize performs: clear the texture atlas (no-op on the
       // DOM renderer) and synchronously repaint every row.
       xtermRuntimeRef.current?.clearTextureAtlas();
+      runImmediateRefit({ force: true });
       const visibleTerm = termRef.current;
       if (visibleTerm) forceSyncRenderAfterResize(visibleTerm);
       if (pendingOutputScrollRef.current) {
@@ -640,6 +750,16 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
         await fontFaceSet.ready;
         if (cancelled) return;
 
+        // Ensure bundled Nerd Font icon fallbacks are loaded at the terminal's
+        // cell size. Shell prompts can arrive before these faces finish loading
+        // on cold start (Linux), leaving Powerline glyphs cached as tofu (#1363).
+        try {
+          await fontFaceSet.load(`${effectiveFontSize}px "Symbols Nerd Font Mono"`);
+        } catch (err) {
+          logger.warn("Nerd Font preload failed", err);
+        }
+        if (cancelled) return;
+
         const term = termRef.current as {
           cols: number;
           rows: number;
@@ -650,6 +770,13 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
           term?.renderer?.remeasureFont?.();
         } catch (err) {
           logger.warn("Font remeasure failed", err);
+        }
+
+        // remeasureFont does not invalidate cells rasterized before fonts were ready.
+        xtermRuntimeRef.current?.clearTextureAtlas();
+        const visibleTerm = termRef.current;
+        if (visibleTerm) {
+          forceSyncRenderAfterResize(visibleTerm);
         }
 
         try {
@@ -698,12 +825,13 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
 
 
   useEffect(() => {
-    if (!isVisible || !containerRef.current || !fitAddonRef.current) return;
+    if (!isVisible || !containerRef.current) return;
 
     let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
 
     const observer = new ResizeObserver(() => {
-      if (isResizing || !isVisibleRef.current) return;
+      if (deferTerminalResizeRef?.current || !isVisibleRef.current) return;
+      if (!fitAddonRef.current) return;
       if (resizeTimeout) {
         clearTimeout(resizeTimeout);
       }
@@ -776,6 +904,27 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
     return () => clearTimeout(timer);
   }, [isSearchOpen]);
 
+  // When compose bar opens/closes, re-fit terminal and maintain scroll position
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term || !fitAddonRef.current) return;
+    const buffer = term.buffer.active;
+    const wasAtBottom = buffer.viewportY >= buffer.baseY;
+    const prevViewportY = buffer.viewportY;
+    const timer = setTimeout(() => {
+      safeFit({ force: true, requireVisible: true });
+      requestAnimationFrame(() => {
+        safeFit({ force: true, requireVisible: true });
+        if (wasAtBottom) {
+          term.scrollToBottom();
+        } else {
+          term.scrollToLine(prevViewportY);
+        }
+      });
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [isComposeBarOpen]);
+
 
   useEffect(() => {
     const shouldAutoFocus = isVisible && termRef.current && (!inWorkspace || isFocusMode);
@@ -802,36 +951,70 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
     const term = termRef.current;
     if (!term) return;
 
-    const updateSelectionOverlayPosition = () => {
-      setSelectionOverlayPosition?.(
-        resolveSelectionOverlayPosition(term, containerRef.current),
-      );
+    let overlayRafId: number | null = null;
+    let copyTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastHasSelection: boolean | null = null;
+    let lastOverlayPosition: SelectionOverlayPosition = null;
+    const requestFrame = typeof requestAnimationFrame === "function"
+      ? requestAnimationFrame
+      : (callback: FrameRequestCallback) => setTimeout(() => callback(Date.now()), 0) as unknown as number;
+    const cancelFrame = typeof cancelAnimationFrame === "function"
+      ? cancelAnimationFrame
+      : (id: number) => clearTimeout(id);
+
+    const publishSelectionOverlayPosition = () => {
+      overlayRafId = null;
+      const nextPosition = resolveSelectionOverlayPosition(term, containerRef.current);
+      if (areSelectionOverlayPositionsEqual(lastOverlayPosition, nextPosition)) return;
+      lastOverlayPosition = nextPosition;
+      setSelectionOverlayPosition?.(nextPosition);
+    };
+
+    const scheduleSelectionOverlayPosition = () => {
+      if (overlayRafId !== null) return;
+      overlayRafId = requestFrame(publishSelectionOverlayPosition);
     };
 
     const onSelectionChange = () => {
       const selection = term.getSelection();
       const hasText = !!selection && selection.length > 0;
-      setHasSelection(hasText);
-      updateSelectionOverlayPosition();
+      if (lastHasSelection !== hasText) {
+        lastHasSelection = hasText;
+        setHasSelection(hasText);
+      }
+      scheduleSelectionOverlayPosition();
+
+      if (copyTimer) {
+        clearTimeout(copyTimer);
+        copyTimer = null;
+      }
 
       if (hasText && terminalSettings?.copyOnSelect && !isRestoringSelectionRef.current) {
-        navigator.clipboard.writeText(selection).catch((err) => {
-          logger.warn("Copy on select failed:", err);
-        });
+        copyTimer = setTimeout(() => {
+          navigator.clipboard.writeText(selection).catch((err) => {
+            logger.warn("Copy on select failed:", err);
+          });
+        }, 80);
       }
     };
 
     const selectionDisposable = term.onSelectionChange(onSelectionChange);
-    const scrollDisposable = term.onScroll?.(updateSelectionOverlayPosition);
-    const resizeDisposable = term.onResize?.(updateSelectionOverlayPosition);
+    const scrollDisposable = term.onScroll?.(scheduleSelectionOverlayPosition);
+    const resizeDisposable = term.onResize?.(scheduleSelectionOverlayPosition);
     const resizeObserver = typeof ResizeObserver === "undefined"
       ? null
-      : new ResizeObserver(updateSelectionOverlayPosition);
+      : new ResizeObserver(scheduleSelectionOverlayPosition);
     if (containerRef.current) {
       resizeObserver?.observe(containerRef.current);
     }
-    updateSelectionOverlayPosition();
+    scheduleSelectionOverlayPosition();
     return () => {
+      if (overlayRafId !== null) {
+        cancelFrame(overlayRafId);
+      }
+      if (copyTimer) {
+        clearTimeout(copyTimer);
+      }
       selectionDisposable.dispose();
       scrollDisposable?.dispose();
       resizeDisposable?.dispose();
@@ -876,8 +1059,13 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
     if (!el) return;
 
     const handleContextMenuCapture = (e: MouseEvent) => {
-      if (!mouseTrackingRef.current) return;
-      if (statusRef.current !== 'connected') return;
+      if (!shouldInterceptMouseTrackingContextMenu({
+        event: e,
+        mouseTracking: mouseTrackingRef.current,
+        status: statusRef.current,
+      })) {
+        return;
+      }
       e.preventDefault();
       e.stopImmediatePropagation();
 
@@ -936,6 +1124,43 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
       window.removeEventListener("resize", handler);
     };
   }, [isVisible]);
+
+
+  useEffect(() => {
+    if (!isVisible) return;
+
+    // App resume / refocus only needs a GPU+fit recovery on the active pane;
+    // non-focused split panes already refit when focused (see shouldRefitImmediatelyOnShow).
+    const shouldRecoverOnAppResume = () => (
+      !inWorkspace || isFocusMode || isFocused
+    );
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!shouldRecoverOnAppResume()) return;
+      scheduleLayoutRecoveryRefit();
+    };
+
+    const handleWindowFocus = () => {
+      if (!shouldRecoverOnAppResume()) return;
+      scheduleLayoutRecoveryRefit();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleWindowFocus);
+
+    // Fullscreen changes layout for every visible pane.
+    const unsubscribeFullscreen = terminalBackend.onWindowFullScreenChanged?.((isFullscreen) => {
+      scheduleLayoutRecoveryRefit(isFullscreen ? [0, 150, 400] : [0, 100, 300]);
+    });
+
+    return () => {
+      clearLayoutRecoveryTimers();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleWindowFocus);
+      unsubscribeFullscreen?.();
+    };
+  }, [isVisible, inWorkspace, isFocusMode, isFocused, terminalBackend]);
 
 
   // Only register the snippet executor once the terminal session is ready.

@@ -2,7 +2,18 @@
 
 let bridgesRegistered = false;
 let cloudSyncSessionPassword = null;
-const { readClipboardFiles } = require("../bridges/clipboardFiles.cjs");
+const { readClipboardFiles, readClipboardImage } = require("../bridges/clipboardFiles.cjs");
+const { TRANSFER_CHUNK_SIZE, TRANSFER_CONCURRENCY } = require("../bridges/transferLimits.cjs");
+
+const excludedFigSpecPrefixes = ["aws", "gcloud", "az"];
+
+function isExcludedFigSpec(commandName) {
+  return excludedFigSpecPrefixes.some((prefix) => commandName === prefix || commandName.startsWith(`${prefix}/`));
+}
+
+function filterExcludedFigSpecs(specNames) {
+  return specNames.filter((name) => !isExcludedFigSpec(name));
+}
 
 function createBridgeRegistrar(context) {
   const {
@@ -159,6 +170,15 @@ function createBridgeRegistrar(context) {
     transferBridge.registerHandlers(ipcMain);
     portForwardingBridge.registerHandlers(ipcMain);
     terminalBridge.registerHandlers(ipcMain);
+
+    const { createSystemManagerBridge } = require("../bridges/systemManagerBridge.cjs");
+    const systemManagerBridge = createSystemManagerBridge({
+      getSessions: () => sessions,
+      execOnEtSession: (...args) => terminalBridge.execOnEtSession(...args),
+      ensureMoshStatsConnection: (...args) => sshBridge.ensureMoshStatsConnection(...args),
+      process,
+    });
+    systemManagerBridge.registerHandlers(ipcMain);
     oauthBridge.setupOAuthBridge(ipcMain);
     githubAuthBridge.registerHandlers(ipcMain);
     googleAuthBridge.registerHandlers(ipcMain, electronModule);
@@ -180,7 +200,62 @@ function createBridgeRegistrar(context) {
     ipcMain.on("netcatty:zmodem:cancel", (_event, payload) => {
       const session = sessions.get(payload.sessionId);
       if (session?.zmodemSentry) {
-        session.zmodemSentry.cancel();
+        session.zmodemSentry.cancel(payload.options);
+      }
+    });
+
+    ipcMain.handle("netcatty:zmodem:drag-drop-upload", async (_event, payload) => {
+      const { sessionId, files, uploadCommand } = payload || {};
+      const session = sessions.get(sessionId);
+      if (!session?.zmodemSentry?.queueDragDropUpload) {
+        return { success: false, error: "ZMODEM upload is not available for this session" };
+      }
+      if (session.zmodemSentry.isActive?.()) {
+        return { success: false, error: "ZMODEM transfer already in progress" };
+      }
+
+      const filePaths = [];
+      const remoteNames = [];
+      const tempPaths = [];
+
+      for (const file of files || []) {
+        if (!file?.name) continue;
+        let localPath = file.path;
+        if (!localPath && file.data) {
+          localPath = tempDirBridge.getTempFilePath(file.name);
+          await fs.promises.writeFile(localPath, Buffer.from(file.data));
+          tempPaths.push(localPath);
+        }
+        if (!localPath) continue;
+        try {
+          await fs.promises.access(localPath);
+        } catch {
+          continue;
+        }
+        filePaths.push(localPath);
+        remoteNames.push(file.remoteName || path.basename(localPath));
+      }
+
+      if (!filePaths.length) {
+        for (const tempPath of tempPaths) {
+          try { await fs.promises.unlink(tempPath); } catch { /* ignore */ }
+        }
+        return { success: false, error: "No readable files to upload" };
+      }
+
+      try {
+        session.zmodemSentry.queueDragDropUpload({
+          filePaths,
+          remoteNames,
+          uploadCommand: uploadCommand || "rz\r",
+          tempPaths,
+        });
+        return { success: true };
+      } catch (err) {
+        for (const tempPath of tempPaths) {
+          try { await fs.promises.unlink(tempPath); } catch { /* ignore */ }
+        }
+        return { success: false, error: err?.message || String(err) };
       }
     });
   
@@ -198,7 +273,7 @@ function createBridgeRegistrar(context) {
             .filter(f => f.endsWith(".js"))
             .map(f => f.slice(0, -3));
         } catch { /* no local specs dir */ }
-        const merged = [...new Set([...figSpecs, ...localNames])];
+        const merged = filterExcludedFigSpecs([...new Set([...figSpecs, ...localNames])]);
         return merged;
       } catch (err) {
         console.warn("[Main] Failed to load fig spec list:", err?.message || err);
@@ -210,6 +285,7 @@ function createBridgeRegistrar(context) {
         // Sanitize: reject absolute paths, path traversal, and non-spec characters
         if (!commandName || commandName.startsWith("/") || commandName.startsWith("\\") ||
             commandName.includes("..") || !/^[@a-zA-Z0-9._/+-]+$/.test(commandName)) return null;
+        if (isExcludedFigSpec(commandName)) return null;
         const { pathToFileURL } = require("url");
         const fs = require("fs");
   
@@ -315,6 +391,8 @@ function createBridgeRegistrar(context) {
           appIcon,
           isMac,
           electronDir,
+          route: "session-window",
+          registerAsMainWindow: false,
           onRegisterBridge: registerBridges,
         });
         try {
@@ -343,6 +421,46 @@ function createBridgeRegistrar(context) {
       } catch (err) {
         console.error("[Main] Failed to open session in new window:", err);
         return { success: false, error: err?.message || "Failed to open new window" };
+      }
+    });
+
+    ipcMain.handle("netcatty:window:openTerminalPopup", async (event, payload) => {
+      try {
+        if (!payload || typeof payload !== "object") {
+          return { success: false, error: "Invalid popup payload" };
+        }
+        crashLogBridge.captureDiagnostic("terminal-popup", "openTerminalPopup IPC received", {
+          title: payload.title,
+          parentSessionId: payload.parentSessionId,
+          startupCommand: payload.startupCommand,
+          sourceSessionId: payload.sourceSession?.id,
+          sourceProtocol: payload.sourceSession?.protocol,
+          sourceHostLabel: payload.sourceSession?.hostLabel,
+        });
+        const sourceWindow = BrowserWindow.fromWebContents(event.sender);
+        const result = await getWindowManager().openTerminalPopupWindow(electronModule, {
+          preload,
+          devServerUrl: effectiveDevServerUrl,
+          isDev,
+          appIcon,
+          isMac,
+          electronDir,
+          sourceWindow,
+        }, payload);
+        crashLogBridge.captureDiagnostic("terminal-popup", "openTerminalPopup IPC result", {
+          title: payload.title,
+          success: result?.success,
+          error: result?.error,
+          popupId: result?.popupId,
+        });
+        return result;
+      } catch (err) {
+        crashLogBridge.captureError("terminal-popup", err, {
+          title: payload?.title,
+          parentSessionId: payload?.parentSessionId,
+        });
+        console.error("[Main] Failed to open terminal popup:", err);
+        return { success: false, error: err?.message || "Failed to open terminal popup" };
       }
     });
   
@@ -461,6 +579,10 @@ function createBridgeRegistrar(context) {
 
     ipcMain.handle("netcatty:clipboard:readFiles", async () => {
       return readClipboardFiles({ clipboard, fsImpl: fs, pathImpl: path });
+    });
+
+    ipcMain.handle("netcatty:clipboard:readImage", async () => {
+      return readClipboardImage({ clipboard, fsImpl: fs, tempDirBridge });
     });
   
     // Select an application from system file picker
@@ -645,7 +767,7 @@ function createBridgeRegistrar(context) {
       console.log(`[Main]   Remote path: ${remotePath}`);
       console.log(`[Main]   File name: ${fileName}`);
       
-      const client = require("./bridges/sftpBridge.cjs");
+      const client = require("../bridges/sftpBridge.cjs");
       // Use tempDirBridge for dedicated Netcatty temp directory
       const localPath = await getTempDirBridge().getTempFilePath(fileName);
       
@@ -675,7 +797,10 @@ function createBridgeRegistrar(context) {
       const encodedPath = client.encodePathForSession
         ? client.encodePathForSession(sftpId, remotePath, encoding)
         : remotePath;
-      await sftpClient.fastGet(encodedPath, localPath);
+      await sftpClient.fastGet(encodedPath, localPath, {
+        chunkSize: TRANSFER_CHUNK_SIZE,
+        concurrency: TRANSFER_CONCURRENCY,
+      });
       console.log(`[Main]   File downloaded successfully`);
       return localPath;
     });
@@ -750,4 +875,4 @@ function createBridgeRegistrar(context) {
   return registerBridges;
 }
 
-module.exports = { createBridgeRegistrar };
+module.exports = { createBridgeRegistrar, filterExcludedFigSpecs, isExcludedFigSpec };

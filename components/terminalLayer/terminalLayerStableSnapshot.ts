@@ -2,6 +2,7 @@
 import type React from 'react';
 
 import type { DropEntry } from '../../lib/sftpFileUtils';
+import type { ProgrammaticCommandLogRewrite } from '../terminal/programmaticCommandLog';
 import type {
   GroupConfig,
   Host,
@@ -12,6 +13,7 @@ import type {
   Snippet,
   TerminalSession,
   TerminalTheme,
+  VaultNote,
   Workspace,
 } from '../../types';
 import type {
@@ -37,10 +39,12 @@ export type TerminalLayerStableSnapshot = {
   effectiveHosts: Host[];
   sessionHostsMap: Map<string, Host>;
   sessionHostsMapRef: React.MutableRefObject<Map<string, Host>>;
+  resolvedSessionHostIds: Set<string>;
   sessionChainHostsMap: Map<string, Host[]>;
   sessionSudoAutofillPasswordsMap: Map<string, string | undefined>;
   workspaceById: Map<string, Workspace>;
   snippetExecutorsRef: React.MutableRefObject<Map<string, SnippetExecutor>>;
+  programmaticCommandLogRewriteHandlersRef: React.MutableRefObject<Map<string, (rewrite: ProgrammaticCommandLogRewrite) => void>>;
   activeTabIdRef: React.MutableRefObject<string>;
   activeWorkspaceRef: React.MutableRefObject<Workspace | undefined>;
   activeSessionRef: React.MutableRefObject<TerminalSession | undefined>;
@@ -66,6 +70,10 @@ export type TerminalLayerStableSnapshot = {
   pendingTerminalSelectionForAI: PendingTerminalSelectionForAI | null;
   setPendingTerminalSelectionForAI: React.Dispatch<React.SetStateAction<PendingTerminalSelectionForAI | null>>;
   lastSidePanelTabRef: React.MutableRefObject<Map<string, SidePanelTab>>;
+  notesMountedTabIds: string[];
+  setNotesMountedTabIds: React.Dispatch<React.SetStateAction<string[]>>;
+  notesOpenNoteByTab: Map<string, string>;
+  setNotesOpenNoteByTab: React.Dispatch<React.SetStateAction<Map<string, string>>>;
   isComposeBarOpen: boolean;
   setIsComposeBarOpen: React.Dispatch<React.SetStateAction<boolean>>;
   splitHorizontalHandlersRef: React.MutableRefObject<Map<string, () => void>>;
@@ -88,6 +96,10 @@ export type TerminalLayerStableSnapshot = {
   handleTerminalDataCapture: (sessionId: string, data: string) => void;
   handleBroadcastInput: (data: string, sourceSessionId: string) => void;
   handleSnippetExecutorChange: (sessionId: string, executor: SnippetExecutor | null) => void;
+  handleProgrammaticCommandLogRewriteChange: (
+    sessionId: string,
+    queueRewrite: ((rewrite: ProgrammaticCommandLogRewrite) => void) | null,
+  ) => void;
   handleTerminalFontSizeChange: (sessionId: string, nextFontSize: number) => void;
   handleOpenSftp: (host: Host, initialPath?: string, pendingUploadEntries?: DropEntry[], sourceSessionId?: string) => void;
   handlePendingUploadHandled: (tabId: string, requestId: string) => void;
@@ -97,10 +109,17 @@ export type TerminalLayerStableSnapshot = {
   handleSwitchSidePanelTab: (tab: SidePanelTab) => void;
   handleToggleSftpFromBar: () => void;
   handleOpenScripts: () => void;
+  handleOpenHistory: () => void;
+  handleHistoryPaste: (command: string) => void;
+  handleHistoryRun: (command: string) => void;
   handleToggleScriptsSidePanel: () => void;
   handleToggleSidePanel: () => void;
   handleOpenTheme: () => void;
   handleOpenAI: () => void;
+  handleOpenSystem: () => void;
+  handleOpenNotes: () => void;
+  handleBackFromNotes: () => void;
+  handleOpenHostFromNotes: (host: Host, source?: { noteId?: string }) => void;
   handleAddSelectionToAI: (sourceSessionId: string, selection: string) => void;
   handlePendingTerminalSelectionConsumed: (requestId: string) => void;
   handleToggleAiFromTopBar: () => void;
@@ -125,19 +144,33 @@ export type TerminalLayerStableSnapshot = {
   identities: Identity[];
   snippets: Snippet[];
   snippetPackages: string[];
+  notes: VaultNote[];
+  noteGroups: string[];
   knownHosts: KnownHost[];
   hotkeyScheme: TerminalLayerProps['hotkeyScheme'];
+  disableTerminalFontZoom: TerminalLayerProps['disableTerminalFontZoom'];
+  restoreTerminalCwd: TerminalLayerProps['restoreTerminalCwd'];
   keyBindings: TerminalLayerProps['keyBindings'];
   onHotkeyAction: TerminalLayerProps['onHotkeyAction'];
   onConnectToHost: TerminalLayerProps['onConnectToHost'];
   onCreateLocalTerminal: TerminalLayerProps['onCreateLocalTerminal'];
   onReorderWorkspaceSessions: TerminalLayerProps['onReorderWorkspaceSessions'];
+  onReorderTabs: TerminalLayerProps['onReorderTabs'];
+  onCopySession: TerminalLayerProps['onCopySession'];
+  onCopySessionToNewWindow: TerminalLayerProps['onCopySessionToNewWindow'];
+  onUpdateSessionRestoreCwd: TerminalLayerProps['onUpdateSessionRestoreCwd'];
+  onUpdateSessionDynamicTitle: TerminalLayerProps['onUpdateSessionDynamicTitle'];
+  onUpdateSessionCodingCliProvider: TerminalLayerProps['onUpdateSessionCodingCliProvider'];
   onRequestAddToWorkspace: TerminalLayerProps['onRequestAddToWorkspace'];
   onSetWorkspaceFocusedSession: TerminalLayerProps['onSetWorkspaceFocusedSession'];
   onToggleWorkspaceViewMode: TerminalLayerProps['onToggleWorkspaceViewMode'];
   onSplitSession: TerminalLayerProps['onSplitSession'];
   isBroadcastEnabled: TerminalLayerProps['isBroadcastEnabled'];
   updateHosts: TerminalLayerProps['updateHosts'];
+  updateSnippets: TerminalLayerProps['updateSnippets'];
+  updateSnippetPackages: TerminalLayerProps['updateSnippetPackages'];
+  updateNotes: TerminalLayerProps['updateNotes'];
+  updateNoteGroups: TerminalLayerProps['updateNoteGroups'];
   sftpDefaultViewMode: TerminalLayerProps['sftpDefaultViewMode'];
   sftpDoubleClickBehavior: TerminalLayerProps['sftpDoubleClickBehavior'];
   sftpAutoSync: TerminalLayerProps['sftpAutoSync'];
@@ -147,4 +180,5 @@ export type TerminalLayerStableSnapshot = {
   sshDebugLogsEnabled: boolean;
   groupConfigs: GroupConfig[];
   proxyProfiles: ProxyProfile[];
+  shellHistory: import('../../types').ShellHistoryEntry[];
 };

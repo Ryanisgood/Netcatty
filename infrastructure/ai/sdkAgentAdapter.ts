@@ -7,6 +7,7 @@
 
 import type { AIToolIntegrationMode, ExternalAgentConfig } from './types';
 import { getExternalAgentSdkBackend } from './managedAgents';
+import { decryptField } from '../persistence/secureFieldAdapter';
 
 export interface DefaultTargetSessionHint {
   sessionId: string;
@@ -49,6 +50,7 @@ interface SdkAgentBridge {
     defaultTargetSession?: DefaultTargetSessionHint,
     userSkillsContext?: string,
     agentEnv?: Record<string, string>,
+    agentCommand?: string,
   ): Promise<{ ok: boolean; error?: unknown }>;
   aiSdkAgentCancel(requestId: string, chatSessionId?: string): Promise<{ ok: boolean }>;
   onAiSdkAgentEvent(requestId: string, cb: (event: StreamEvent) => void): () => void;
@@ -61,6 +63,27 @@ interface StreamEvent {
   [key: string]: unknown;
 }
 
+const SDK_SESSION_ID_PREFIX = 'netcatty-sdk-session:';
+
+function getManualAgentCommand(config: ExternalAgentConfig): string | undefined {
+  const command = String(config.command || '').trim();
+  return config.commandSource === 'manual' && command ? command : undefined;
+}
+
+function encodeSdkSessionIdentity(
+  sessionId: string,
+  sdkBackend?: string,
+  binPath?: string,
+): string {
+  if (!sessionId || !sdkBackend) return sessionId;
+  return `${SDK_SESSION_ID_PREFIX}${encodeURIComponent(JSON.stringify({
+    v: 1,
+    id: sessionId,
+    backend: sdkBackend,
+    binPath: binPath || '',
+  }))}`;
+}
+
 /**
  * Run one managed SDK agent turn.
  * Sends the prompt to the main process and listens for streamed events.
@@ -71,6 +94,21 @@ export interface FileAttachment {
   mediaType: string;
   filename?: string;
   filePath?: string;
+}
+
+async function buildAgentEnvWithStoredApiKey(
+  sdkBackend: string,
+  config: ExternalAgentConfig,
+): Promise<Record<string, string> | undefined> {
+  const env = { ...(config.env ?? {}) };
+  if (sdkBackend === 'cursor' && config.apiKey) {
+    const decrypted = await decryptField(config.apiKey).catch(() => config.apiKey);
+    const apiKey = String(decrypted || '').trim();
+    if (apiKey) {
+      env.CURSOR_API_KEY = apiKey;
+    }
+  }
+  return Object.keys(env).length > 0 ? env : undefined;
 }
 
 function safeJsonStringify(value: unknown): string | null {
@@ -167,6 +205,9 @@ export async function runSdkAgentTurn(
     return true;
   };
 
+  const agentEnv = await buildAgentEnvWithStoredApiKey(sdkBackend, config);
+  const agentCommand = getManualAgentCommand(config);
+
   // Set up event listeners before starting stream
   const unsubEvent = sdkBridge.onAiSdkAgentEvent(requestId, (event: StreamEvent) => {
     const streamFailed = handleStreamEvent(event, callbacks);
@@ -221,7 +262,8 @@ export async function runSdkAgentTurn(
     toolIntegrationMode,
     defaultTargetSession,
     userSkillsContext,
-    config.env,
+    agentEnv,
+    agentCommand,
   ).then((result) => {
     if (result?.ok === false) {
       settle(() => {
@@ -307,7 +349,13 @@ function handleStreamEvent(event: StreamEvent, callbacks: SdkAgentCallbacks): bo
     }
     case 'session-id': {
       const sessionId = (event.sessionId as string) || '';
-      if (sessionId) callbacks.onSessionId?.(sessionId);
+      if (sessionId) {
+        callbacks.onSessionId?.(encodeSdkSessionIdentity(
+          sessionId,
+          event.sdkBackend as string | undefined,
+          event.binPath as string | undefined,
+        ));
+      }
       return false;
     }
     case 'error': {

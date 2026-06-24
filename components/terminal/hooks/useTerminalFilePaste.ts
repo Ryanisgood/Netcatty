@@ -5,8 +5,7 @@ import { useEffect } from "react";
 import { netcattyBridge } from "../../../infrastructure/services/netcattyBridge";
 import { logger } from "../../../lib/logger";
 import type { TerminalSession } from "../../../types";
-import { extractRootPathsFromClipboardFiles } from "../terminalHelpers";
-import { pasteTextIntoTerminal } from "../runtime/terminalUserPaste";
+import { handleTerminalClipboardPaste } from "../terminalClipboardPaste";
 
 interface UseTerminalFilePasteOptions {
   isLocalConnection: boolean;
@@ -16,6 +15,8 @@ interface UseTerminalFilePasteOptions {
   terminalBackend: {
     writeToSession: (sessionId: string, data: string, options?: { automated?: boolean }) => void;
   };
+  scrollOnPasteRef?: React.RefObject<boolean>;
+  onPasteData?: (data: string) => boolean | void;
   scrollToBottomAfterProgrammaticInput: (data: string) => void;
   containerRef: React.RefObject<HTMLDivElement | null>;
 }
@@ -26,6 +27,8 @@ export function useTerminalFilePaste({
   termRef,
   sessionRef,
   terminalBackend,
+  scrollOnPasteRef,
+  onPasteData,
   scrollToBottomAfterProgrammaticInput,
   containerRef,
 }: UseTerminalFilePasteOptions) {
@@ -33,23 +36,12 @@ export function useTerminalFilePaste({
     const container = containerRef.current;
     if (!container) return;
 
-    const fallbackToTextPaste = () => {
-      const term = termRef.current;
-      if (!term || !sessionRef.current) return;
-      navigator.clipboard.readText().then((text) => {
-        if (text) {
-          pasteTextIntoTerminal(term, text, { scrollOnPaste: false });
-        }
-      }).catch(() => {
-        // clipboard access denied — silently ignore
-      });
-    };
-
     const handlePaste = (event: ClipboardEvent) => {
-      if (!isLocalConnection || status !== "connected") return;
+      if (status !== "connected") return;
 
       const bridge = netcattyBridge.get();
-      if (!bridge?.readClipboardFiles) return;
+
+      if (!isLocalConnection || !bridge?.readClipboardFiles) return;
 
       // ⚡ Must call preventDefault SYNCHRONOUSLY — the event lifecycle
       // is synchronous; calling it after an await is too late and the
@@ -59,25 +51,21 @@ export function useTerminalFilePaste({
 
       void (async () => {
         try {
-          const files = await bridge.readClipboardFiles!();
-          if (files.length === 0) {
-            fallbackToTextPaste();
-            return;
-          }
-
-          const paths = extractRootPathsFromClipboardFiles(files);
-          if (paths.length === 0 || !sessionRef.current) {
-            fallbackToTextPaste();
-            return;
-          }
-
-          const pathsText = paths.join(" ");
-          terminalBackend.writeToSession(sessionRef.current, pathsText);
-          scrollToBottomAfterProgrammaticInput(pathsText);
-          termRef.current?.focus();
+          const term = termRef.current;
+          if (!term) return;
+          await handleTerminalClipboardPaste({
+            bridge,
+            isLocalConnection,
+            readClipboardText: () => navigator.clipboard.readText(),
+            scrollOnPaste: scrollOnPasteRef?.current ?? false,
+            onPasteData,
+            sessionId: sessionRef.current,
+            terminalBackend,
+            term,
+            scrollToBottomAfterProgrammaticInput,
+          });
         } catch (error) {
           logger.error("Failed to handle file paste", error);
-          fallbackToTextPaste();
         }
       })();
     };
@@ -89,6 +77,8 @@ export function useTerminalFilePaste({
   }, [
     containerRef,
     isLocalConnection,
+    onPasteData,
+    scrollOnPasteRef,
     scrollToBottomAfterProgrammaticInput,
     sessionRef,
     status,

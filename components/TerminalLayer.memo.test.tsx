@@ -17,6 +17,8 @@ const baseProps = {
   knownHosts: [],
   draggingSessionId: null,
   terminalTheme: {},
+  terminalThemeId: "midnight",
+  followAppTerminalTheme: false,
   accentMode: "theme",
   customAccent: null,
   terminalSettings: {},
@@ -36,11 +38,14 @@ const baseProps = {
   setEditorWordWrap: () => {},
   onHotkeyAction: () => {},
   onUpdateHost: () => {},
+  onUpdateFollowAppTerminalThemeId: () => {},
   onAddKnownHost: () => {},
   onToggleWorkspaceViewMode: () => {},
   onSetWorkspaceFocusedSession: () => {},
   isBroadcastEnabled: () => false,
   onToggleBroadcast: () => {},
+  updateSnippets: () => {},
+  updateSnippetPackages: () => {},
   onSplitSession: () => {},
   onConnectToHost: () => {},
   toggleScriptsSidePanelRef: { current: null },
@@ -124,11 +129,59 @@ test("TerminalLayer re-renders when broadcast toggle handler changes", () => {
   );
 });
 
+test("TerminalLayer re-renders when snippet save handlers change", () => {
+  assert.equal(
+    terminalLayerAreEqual(
+      baseProps as never,
+      { ...baseProps, updateSnippets: () => {} } as never,
+    ),
+    false,
+  );
+
+  assert.equal(
+    terminalLayerAreEqual(
+      baseProps as never,
+      { ...baseProps, updateSnippetPackages: () => {} } as never,
+    ),
+    false,
+  );
+});
+
 test("TerminalLayer re-renders when SSH debug logging changes", () => {
   assert.equal(
     terminalLayerAreEqual(
       baseProps as never,
       { ...baseProps, sshDebugLogsEnabled: true } as never,
+    ),
+    false,
+  );
+});
+
+test("TerminalLayer re-renders when follow-app terminal theme mode changes", () => {
+  assert.equal(
+    terminalLayerAreEqual(
+      baseProps as never,
+      { ...baseProps, followAppTerminalTheme: true } as never,
+    ),
+    false,
+  );
+});
+
+test("TerminalLayer re-renders when the visible terminal theme id changes", () => {
+  assert.equal(
+    terminalLayerAreEqual(
+      baseProps as never,
+      { ...baseProps, terminalThemeId: "snow" } as never,
+    ),
+    false,
+  );
+});
+
+test("TerminalLayer re-renders when a note open request changes", () => {
+  assert.equal(
+    terminalLayerAreEqual(
+      baseProps as never,
+      { ...baseProps, openNoteRequest: { tabId: "session-1", noteId: "note-1", requestId: 1 } } as never,
     ),
     false,
   );

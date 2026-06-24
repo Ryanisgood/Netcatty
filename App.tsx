@@ -24,10 +24,13 @@ import { matchesKeyBinding } from './domain/models';
 import { resolveGroupDefaults, applyGroupDefaults } from './domain/groupConfig';
 import { upsertKnownHost } from './domain/knownHosts';
 import { materializeHostProxyProfile } from './domain/proxyProfiles';
+import { buildSshDeepLinkConnectionHost, buildSshDeepLinkHostDraft, findSshDeepLinkHost, parseSshDeepLink } from './domain/sshDeepLink';
 import { resolveHostAuth } from './domain/sshAuth';
 import { isEncryptedCredentialPlaceholder } from './domain/credentials';
 import {
+  getFollowAppTerminalThemeSelectionUpdate,
   mergeTerminalHostUpdate,
+  type TerminalHostUpdate,
 } from './domain/terminalAppearance';
 import { selectConnectionLogForTerminalDataCapture } from './domain/connectionLog';
 import { collectSessionIds } from './domain/workspace';
@@ -35,7 +38,7 @@ import { resolveCloseIntent } from './application/state/resolveCloseIntent';
 import { resolveSnippetsShortcutIntent } from './application/state/resolveSnippetsShortcutIntent';
 import { resolveWindowCommandCloseIntent } from './application/state/windowCommandClose';
 import { TERMINAL_THEMES } from './infrastructure/config/terminalThemes';
-import { useCustomThemes } from './application/state/customThemeStore';
+import { customThemeStore, useCustomThemes } from './application/state/customThemeStore';
 import type { SyncPayload } from './domain/sync';
 import { applySyncPayload, buildLocalVaultPayload, hasMeaningfulSyncData } from './application/syncPayload';
 import {
@@ -99,11 +102,13 @@ function App({ settings }: { settings: SettingsState }) {
   const [protocolSelectHost, setProtocolSelectHost] = useState<Host | null>(null);
   // Navigation state for VaultView sections
   const [navigateToSection, setNavigateToSection] = useState<VaultSection | null>(null);
+  const [deepLinkHostDraft, setDeepLinkHostDraft] = useState<Host | null>(null);
   // Keyboard-interactive authentication queue (2FA/MFA) - queue-based to handle multiple concurrent sessions
   const [keyboardInteractiveQueue, setKeyboardInteractiveQueue] = useState<KeyboardInteractiveRequest[]>([]);
   // Passphrase request queue for encrypted SSH keys
   const [passphraseQueue, setPassphraseQueue] = useState<PassphraseRequest[]>([]);
   const [pendingNewWindowSession, setPendingNewWindowSession] = useState<OpenSessionInNewWindowPayload | null>(null);
+  const isPeerSessionWindow = typeof window !== 'undefined' && window.location.hash.startsWith('#/session-window');
 
   const {
     theme,
@@ -113,6 +118,8 @@ function App({ settings }: { settings: SettingsState }) {
     customAccent,
     terminalThemeId,
     setTerminalThemeId,
+    setTerminalThemeDarkId,
+    setTerminalThemeLightId,
     followAppTerminalTheme,
     currentTerminalTheme,
     terminalFontFamilyId,
@@ -162,6 +169,8 @@ function App({ settings }: { settings: SettingsState }) {
     snippets,
     customGroups,
     snippetPackages,
+    notes,
+    noteGroups,
     knownHosts,
     shellHistory,
     connectionLogs,
@@ -173,6 +182,8 @@ function App({ settings }: { settings: SettingsState }) {
     updateProxyProfiles,
     updateSnippets,
     updateSnippetPackages,
+    updateNotes,
+    updateNoteGroups,
     updateCustomGroups,
     updateKnownHosts,
     updateManagedSources,
@@ -193,7 +204,6 @@ function App({ settings }: { settings: SettingsState }) {
   const keysRef = useRef(keys);
   keysRef.current = keys;
   const knownHostsRef = useRef(knownHosts);
-  knownHostsRef.current = knownHosts;
   // Bridge the gap while useVaultState hydrates: its async init awaits
   // hosts/keys/identities/proxyProfiles decryption before reading knownHosts,
   // so the state is briefly [] at boot even when localStorage has entries.
@@ -204,6 +214,7 @@ function App({ settings }: { settings: SettingsState }) {
     () => getEffectiveKnownHosts(knownHosts) ?? [],
     [knownHosts],
   );
+  knownHostsRef.current = effectiveKnownHosts;
 
   const {
     sessions,
@@ -215,6 +226,7 @@ function App({ settings }: { settings: SettingsState }) {
     sessionRenameValue,
     setSessionRenameValue,
     startSessionRename,
+    renameSessionInline,
     submitSessionRename,
     resetSessionRename,
     workspaceRenameTarget,
@@ -229,9 +241,12 @@ function App({ settings }: { settings: SettingsState }) {
     closeSession,
     closeWorkspace,
     updateSessionStatus,
+    updateSessionFontSize,
+    clearSessionFontSizeOverride,
     createWorkspaceWithHosts,
     createWorkspaceFromSessions,
     addSessionToWorkspace,
+    removeSessionFromWorkspace,
     appendHostToWorkspace,
     appendLocalTerminalToWorkspace,
     createWorkspaceFromTargets,
@@ -253,7 +268,10 @@ function App({ settings }: { settings: SettingsState }) {
     closeLogView,
     copySession,
     createSessionFromCloneSource,
-  } = useSessionState();
+    updateSessionRestoreCwd,
+    updateSessionDynamicTitle,
+    updateSessionCodingCliProvider,
+  } = useSessionState({ persistSessionRestore: !isPeerSessionWindow });
 
   const handleRunSnippet = useCallback(
     async (snippet: Snippet, targetHosts: Host[]) => {
@@ -301,7 +319,7 @@ function App({ settings }: { settings: SettingsState }) {
       if (!payload?.sourceSession) return;
       setPendingNewWindowSession(payload);
     });
-  }, []);
+  }, [isPeerSessionWindow]);
 
   useEffect(() => {
     if (!isVaultInitialized || !pendingNewWindowSession?.sourceSession) return;
@@ -350,6 +368,8 @@ function App({ settings }: { settings: SettingsState }) {
         snippets,
         customGroups,
         snippetPackages,
+        notes,
+        noteGroups,
         knownHosts: getEffectiveKnownHosts(knownHosts),
         groupConfigs,
       },
@@ -363,6 +383,8 @@ function App({ settings }: { settings: SettingsState }) {
     keys,
     proxyProfiles,
     knownHosts,
+    noteGroups,
+    notes,
     portForwardingRulesForSync,
     snippetPackages,
     snippets,
@@ -398,7 +420,7 @@ function App({ settings }: { settings: SettingsState }) {
   // hydrated enough to be backed up (or the user genuinely stays empty,
   // in which case the effect continues to no-op).
   useEffect(() => {
-    if (!isVaultInitialized || versionBackupAttemptedRef.current) return;
+    if (isPeerSessionWindow || !isVaultInitialized || versionBackupAttemptedRef.current) return;
     const payload = buildCurrentSyncPayloadRef.current();
     if (!hasMeaningfulSyncData(payload)) return;
     versionBackupAttemptedRef.current = true;
@@ -422,7 +444,7 @@ function App({ settings }: { settings: SettingsState }) {
     return () => {
       cancelled = true;
     };
-  }, [isVaultInitialized, hosts, keys, identities, proxyProfiles, snippets, customGroups, snippetPackages, knownHosts]);
+  }, [isPeerSessionWindow, isVaultInitialized, hosts, keys, identities, proxyProfiles, snippets, customGroups, snippetPackages, notes, noteGroups, knownHosts]);
 
   // Memoized "apply a remote payload safely" callback. Stable identity
   // across renders so useAutoSync's `syncNow` useCallback doesn't rebuild
@@ -452,6 +474,7 @@ function App({ settings }: { settings: SettingsState }) {
 
   // Auto-sync hook for cloud sync
   const { syncNow: handleSyncNow, emptyVaultConflict, resolveEmptyVaultConflict } = useAutoSync({
+    enabled: !isPeerSessionWindow,
     hosts,
     keys,
     identities,
@@ -459,6 +482,8 @@ function App({ settings }: { settings: SettingsState }) {
     snippets,
     customGroups,
     snippetPackages,
+    notes,
+    noteGroups,
     portForwardingRules: portForwardingRulesForSync,
     groupConfigs,
     settingsVersion: settings.settingsVersion,
@@ -478,6 +503,7 @@ function App({ settings }: { settings: SettingsState }) {
 
   // Update check hook - checks for new versions on startup
   const { updateState, dismissUpdate, installUpdate } = useUpdateCheck({
+    enabled: !isPeerSessionWindow,
     // Install blocked because an editor has unsaved changes (#1215). The main
     // process broadcasts this; show an actionable toast telling the user to save
     // and click "Restart Now" again.
@@ -492,9 +518,10 @@ function App({ settings }: { settings: SettingsState }) {
   const _handleGlobalHotkeyKeyDown = useEffectEvent((e: KeyboardEvent) => { return handleGlobalHotkeyKeyDownImpl(() => ({ HOTKEY_DEBUG, closeTabKeyStr, e, executeHotkeyAction, hotkeyScheme, keyBindings, matchesKeyBinding }), e); });
   const _handleEscapeKeyDown = useEffectEvent((e: KeyboardEvent) => { return handleEscapeKeyDownImpl(() => ({ e, isQuickSwitcherOpen, setIsQuickSwitcherOpen }), e); });
 
-  useAppStartupEffects({ dismissUpdate, groupConfigs, hosts, identities, installUpdate, isVaultInitialized, keys, openSettingsWindow, portForwardingRules, proxyProfiles, sessions, setKeyboardInteractiveQueue, t, terminalSettings, updateState, workspaces });
+  useAppStartupEffects({ dismissUpdate, enabled: !isPeerSessionWindow, groupConfigs, hosts, identities, installUpdate, isVaultInitialized, keys, openSettingsWindow, portForwardingRules, proxyProfiles, sessions, setKeyboardInteractiveQueue, t, terminalSettings, updateState, workspaces });
 
   useEffect(() => {
+    if (isPeerSessionWindow) return;
     const bridge = netcattyBridge.get();
     if (!bridge?.onTrayFocusSession || !bridge?.onTrayTogglePortForward) return;
 
@@ -509,9 +536,10 @@ function App({ settings }: { settings: SettingsState }) {
       unsubscribeFocus?.();
       unsubscribeToggle?.();
     };
-  }, []);
+  }, [isPeerSessionWindow]);
 
   useEffect(() => {
+    if (isPeerSessionWindow) return;
     const bridge = netcattyBridge.get();
     if (!bridge?.onTrayPanelJumpToSession || !bridge?.onTrayPanelConnectToHost) return;
 
@@ -525,7 +553,7 @@ function App({ settings }: { settings: SettingsState }) {
       unsubscribeJump?.();
       unsubscribeConnect?.();
     };
-  }, []);
+  }, [isPeerSessionWindow]);
 
   // Handle keyboard-interactive submit
   const handleKeyboardInteractiveSubmit = useCallback((requestId: string, responses: string[], savePassword?: string) => { return handleKeyboardInteractiveSubmitImpl(() => ({ hosts, keyboardInteractiveQueue, netcattyBridge, requestId, responses, savePassword, sessions, setKeyboardInteractiveQueue, updateHosts }), requestId, responses, savePassword); }, [keyboardInteractiveQueue, sessions, hosts, updateHosts]);
@@ -666,6 +694,12 @@ function App({ settings }: { settings: SettingsState }) {
 
   const toggleScriptsSidePanelRef = useRef<(() => void) | null>(null);
   const toggleSidePanelRef = useRef<(() => void) | null>(null);
+  const openNoteRequestIdRef = useRef(0);
+  const [openNoteRequest, setOpenNoteRequest] = useState<{
+    tabId: string;
+    noteId: string;
+    requestId: number;
+  } | null>(null);
   // Populated below so the hotkey dispatcher can open the Settings window
   // even though `handleOpenSettings` is declared further down in the file.
   const handleOpenSettingsRef = useRef<() => void>(() => {});
@@ -725,7 +759,7 @@ function App({ settings }: { settings: SettingsState }) {
   );
 
   // Shared hotkey action handler - used by both global handler and terminal callback
-  const executeHotkeyAction = useCallback((action: string, e: KeyboardEvent) => { return executeHotkeyActionImpl(() => ({ IS_DEV, MOVE_FOCUS_DEBOUNCE_MS, action, activeTabStore, addConnectionLogRef, closeSession, closeTabInFlightRef, closeWorkspace, collectSessionIds, confirmIfBusyLocalTerminal, createLocalTerminalWithCurrentShell, e, editorTabs, fromEditorTabId, handleOpenSettingsRef, handleRequestCloseEditorTabRef, isEditorTabId, lastMoveFocusTimeRef, moveFocusInWorkspace, orderedTabs, resolveCloseIntent, resolveSnippetsShortcutIntent, sessions, setActiveTabId, setAddToWorkspaceDialog, setIsQuickSwitcherOpen, setNavigateToSection, settings, splitSessionWithCurrentShell, systemInfoRef, toEditorTabId, toggleBroadcast, toggleScriptsSidePanelRef, toggleSidePanelRef, workspaces }), action, e); }, [orderedTabs, editorTabs, sessions, workspaces, setActiveTabId, closeSession, closeWorkspace, createLocalTerminalWithCurrentShell, splitSessionWithCurrentShell, moveFocusInWorkspace, toggleBroadcast, settings, confirmIfBusyLocalTerminal]);
+  const executeHotkeyAction = useCallback((action: string, e: KeyboardEvent) => { return executeHotkeyActionImpl(() => ({ IS_DEV, MOVE_FOCUS_DEBOUNCE_MS, action, activeTabStore, addConnectionLogRef, closeSession, closeTabInFlightRef, closeWorkspace, collectSessionIds, confirmIfBusyLocalTerminal, createLocalTerminalWithCurrentShell, e, editorTabs, fromEditorTabId, handleOpenSettingsRef, handleRequestCloseEditorTabRef, isEditorTabId, isQuickSwitcherOpen, lastMoveFocusTimeRef, moveFocusInWorkspace, orderedTabs, resolveCloseIntent, resolveSnippetsShortcutIntent, sessions, setActiveTabId, setAddToWorkspaceDialog, setIsQuickSwitcherOpen, setNavigateToSection, settings, splitSessionWithCurrentShell, systemInfoRef, toEditorTabId, toggleBroadcast, toggleScriptsSidePanelRef, toggleSidePanelRef, toggleWorkspaceViewMode, workspaces }), action, e); }, [orderedTabs, editorTabs, sessions, workspaces, isQuickSwitcherOpen, setActiveTabId, closeSession, closeWorkspace, createLocalTerminalWithCurrentShell, splitSessionWithCurrentShell, moveFocusInWorkspace, toggleBroadcast, toggleWorkspaceViewMode, settings, confirmIfBusyLocalTerminal]);
 
   const handleWindowCommandCloseRequest = useCallback(async () => {
     const openDialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"][data-state="open"]'));
@@ -861,6 +895,59 @@ function App({ settings }: { settings: SettingsState }) {
   // Wrapper to connect to host with logging
   const handleConnectToHost = useCallback((host: Host) => { return handleConnectToHostImpl(() => ({ addConnectionLog, connectToHost, host, identities, keys, resolveEffectiveHost, resolveHostAuth, systemInfoRef }), host); }, [addConnectionLog, connectToHost, resolveEffectiveHost, identities, keys]);
 
+  const _handleSshDeepLink = useEffectEvent((payload: { url?: string }) => {
+    const rawUrl = payload?.url || '';
+    const target = parseSshDeepLink(rawUrl);
+    if (!target) {
+      toast.warning(t('deepLink.ssh.invalid'));
+      return;
+    }
+
+    const effectiveHosts = hosts.map((host) => {
+      const effectiveHost = resolveEffectiveHost(host);
+      const resolvedAuth = resolveHostAuth({ host: effectiveHost, keys, identities });
+      return {
+        ...effectiveHost,
+        username: resolvedAuth.username || effectiveHost.username,
+      };
+    });
+    const matchedEffectiveHost = findSshDeepLinkHost(effectiveHosts, target);
+    if (matchedEffectiveHost) {
+      const originalHost = hosts.find((host) => host.id === matchedEffectiveHost.id) ?? matchedEffectiveHost;
+      handleConnectToHost(buildSshDeepLinkConnectionHost(originalHost));
+      return;
+    }
+
+    setDeepLinkHostDraft(buildSshDeepLinkHostDraft(target, {
+      id: crypto.randomUUID(),
+      now: Date.now(),
+    }));
+    setNavigateToSection('hosts');
+    setActiveTabId('vault');
+  });
+
+  useEffect(() => {
+    if (isPeerSessionWindow) return;
+    const bridge = netcattyBridge.get();
+    if (!bridge?.onSshDeepLink) return;
+    return bridge.onSshDeepLink((payload) => {
+      _handleSshDeepLink(payload);
+    });
+  }, [isPeerSessionWindow]);
+
+  const handleOpenHostFromVaultNote = useCallback((host: Host, source?: { noteId?: string }) => {
+    const tabId = handleConnectToHost(host);
+    if (source?.noteId && typeof tabId === 'string' && tabId) {
+      openNoteRequestIdRef.current += 1;
+      setOpenNoteRequest({
+        tabId,
+        noteId: source.noteId,
+        requestId: openNoteRequestIdRef.current,
+      });
+    }
+    return tabId;
+  }, [handleConnectToHost]);
+
   // Wrap updateSessionStatus to track lastConnectedAt on successful connection
   const handleSessionStatusChange = useCallback((sessionId: string, status: TerminalSession['status']) => {
     updateSessionStatus(sessionId, status);
@@ -872,7 +959,7 @@ function App({ settings }: { settings: SettingsState }) {
     }
   }, [updateSessionStatus, updateHostLastConnected]);
 
-  const handleUpdateHostFromTerminal = useCallback((host: Host) => {
+  const handleUpdateHostFromTerminal = useCallback((host: TerminalHostUpdate) => {
     updateHosts(hosts.map((h) => (
       h.id === host.id ? mergeTerminalHostUpdate(h, host) : h
     )));
@@ -910,6 +997,19 @@ function App({ settings }: { settings: SettingsState }) {
   const handleProtocolSelect = useCallback((protocol: HostProtocol, port: number) => { return handleProtocolSelectImpl(() => ({ handleConnectToHost, port, protocol, protocolSelectHost, setProtocolSelectHost }), protocol, port); }, [protocolSelectHost, handleConnectToHost]);
 
   const handleToggleTheme = useCallback(() => { return handleToggleThemeImpl(() => ({ openSettingsWindow, resolvedTheme, setTheme, t, theme, toast })); }, [openSettingsWindow, resolvedTheme, setTheme, t, theme]);
+
+  const handleFollowAppTerminalThemeChange = useCallback((themeId: string) => {
+    const selectedTheme = customThemeStore.getThemeById(themeId);
+    if (!selectedTheme) return;
+    const update = getFollowAppTerminalThemeSelectionUpdate(selectedTheme);
+    if (update.terminalThemeDarkId) {
+      setTerminalThemeDarkId(update.terminalThemeDarkId);
+    }
+    if (update.terminalThemeLightId) {
+      setTerminalThemeLightId(update.terminalThemeLightId);
+    }
+    setTheme(update.appTheme);
+  }, [setTerminalThemeDarkId, setTerminalThemeLightId, setTheme]);
 
   const handleOpenQuickSwitcher = useCallback(() => {
     setIsQuickSwitcherOpen(true);
@@ -985,13 +1085,17 @@ function App({ settings }: { settings: SettingsState }) {
         logViews={logViews}
         t={t}
       />
-      <AppView ctx={{ accentMode, addShellHistoryEntry, addSessionToWorkspace, addToWorkspaceDialog, appendHostToWorkspace, appendLocalTerminalToWorkspace, clearAndRemoveSource, clearAndRemoveSources, clearUnsavedConnectionLogs, closeLogView, closeSession, closeTabsBatch, copySessionWithCurrentShell, copySessionToNewWindowWithCurrentShell, closeWorkspace, connectionLogs, convertKnownHostToHost, createWorkspaceFromSessions, createWorkspaceFromTargets, createWorkspaceWithHosts, customAccent, customGroups, currentTerminalTheme, deleteConnectionLog, draggingSessionId, effectiveKnownHosts, editorTabs, editorWordWrap, emptyVaultConflict, followAppTerminalTheme, groupConfigs, handleAddKnownHost, handleConnectSerial, handleConnectToHost, handleCreateLocalTerminal, handleDeleteHost, handleEndSessionDrag, handleHostConnectWithProtocolCheck, handleHotkeyAction, handleKeyboardInteractiveCancel, handleKeyboardInteractiveSubmit, handleOpenQuickSwitcher, handleOpenSettings, handleRootContextMenu, handlePassphraseCancel, handlePassphraseSkip, handlePassphraseSubmit, handleProtocolSelect, handleRequestCloseEditorTabRef, handleSessionStatusChange, handleSyncNowManual, handleTerminalDataCapture, handleToggleTheme, handleUpdateHostFromTerminal, hostById, hosts, hotkeyScheme, identities, importOrReuseKey, isBroadcastEnabled, isCreateWorkspaceOpen, isMacClient, isQuickSwitcherOpen, keyBindings, keyboardInteractiveQueue, keys, logViews, managedSources, navigateToSection, openLogView, orderedTabsWithEditors, orphanSessions, passphraseQueue, protocolSelectHost, proxyProfiles, quickResults, quickSearch, reorderWorkTabs, reorderWorkspaceSessions, resetSessionRename, resetWorkspaceRename, resolveEmptyVaultConflict, resolvedTheme, runSnippet: handleRunSnippet, sessionLogsDir, sessionLogsEnabled, sessionLogsFormat, sessionLogsTimestampsEnabled, sessionRenameTarget, sessionRenameValue, sessions, setActiveTabId, setAddToWorkspaceDialog, setDraggingSessionId, setEditorWordWrap, setIsCreateWorkspaceOpen, setIsQuickSwitcherOpen, setNavigateToSection, setProtocolSelectHost, setQuickSearch, setSessionRenameValue, setTerminalFontFamilyId, setTerminalFontSize, setTerminalThemeId, setWorkspaceFocusedSession, setWorkspaceRenameValue, settings, sftpAutoOpenSidebar, sftpFollowTerminalCwd, setSftpFollowTerminalCwd, sftpAutoSync, sftpDefaultViewMode, sftpDoubleClickBehavior, sftpShowHiddenFiles, sftpUseCompressedUpload, shellHistory, snippetPackages, snippets, splitSessionWithCurrentShell, sshDebugLogsEnabled: settings.sshDebugLogsEnabled, startSessionRename, startWorkspaceRename, submitSessionRename, submitWorkspaceRename, t, terminalFontFamilyId, terminalFontSize, terminalSettings, terminalThemeId, toggleBroadcast, toggleConnectionLogSaved, toggleScriptsSidePanelRef, toggleSidePanelRef, toggleWorkspaceViewMode, unmanageSource, updateConnectionLog, updateCustomGroups, updateGroupConfigs, updateHostDistro, updateHosts, updateIdentities, updateKeys, updateKnownHosts, updateManagedSources, updateProxyProfiles, updateSnippetPackages, updateSnippets, updateSplitSizes, updateTerminalSetting, workspaceRenameTarget, workspaceRenameValue, workspaces, VaultViewContainer, SftpViewMount, TerminalLayerMount, LogViewWrapper }} />
+      <AppView ctx={{ accentMode, addShellHistoryEntry, addSessionToWorkspace, addToWorkspaceDialog, appendHostToWorkspace, appendLocalTerminalToWorkspace, clearAndRemoveSource, clearAndRemoveSources, clearUnsavedConnectionLogs, clearSessionFontSizeOverride, closeLogView, closeSession, closeTabsBatch, copySessionWithCurrentShell, copySessionToNewWindowWithCurrentShell, closeWorkspace, connectionLogs, convertKnownHostToHost, createWorkspaceFromSessions, createWorkspaceFromTargets, createWorkspaceWithHosts, customAccent, customGroups, currentTerminalTheme, deepLinkHostDraft, deleteConnectionLog, draggingSessionId, effectiveKnownHosts, editorTabs, editorWordWrap, emptyVaultConflict, followAppTerminalTheme, groupConfigs, handleAddKnownHost, handleConnectSerial, handleConnectToHost, handleCreateLocalTerminal, handleDeleteHost, handleEndSessionDrag, handleFollowAppTerminalThemeChange, handleHostConnectWithProtocolCheck, handleHotkeyAction, handleOpenHostFromVaultNote, handleKeyboardInteractiveCancel, handleKeyboardInteractiveSubmit, handleOpenQuickSwitcher, handleOpenSettings, handleRootContextMenu, handlePassphraseCancel, handlePassphraseSkip, handlePassphraseSubmit, handleProtocolSelect, handleRequestCloseEditorTabRef, handleSessionStatusChange, handleSyncNowManual, handleTerminalDataCapture, handleToggleTheme, handleUpdateHostFromTerminal, hostById, hosts, hotkeyScheme, identities, importOrReuseKey, isBroadcastEnabled, isCreateWorkspaceOpen, isMacClient, isQuickSwitcherOpen, keyBindings, keyboardInteractiveQueue, keys, logViews, managedSources, navigateToSection, noteGroups, notes, openLogView, openNoteRequest, orderedTabsWithEditors, orphanSessions, passphraseQueue, protocolSelectHost, proxyProfiles, quickResults, quickSearch, removeSessionFromWorkspace, reorderWorkTabs, reorderWorkspaceSessions, resetSessionRename, resetWorkspaceRename, resolveEmptyVaultConflict, resolvedTheme, runSnippet: handleRunSnippet, sessionLogsDir, sessionLogsEnabled, sessionLogsFormat, sessionLogsTimestampsEnabled, sessionRenameTarget, sessionRenameValue, sessions, setActiveTabId, setAddToWorkspaceDialog, setDeepLinkHostDraft, setDraggingSessionId, setEditorWordWrap, setIsCreateWorkspaceOpen, setIsQuickSwitcherOpen, setNavigateToSection, setProtocolSelectHost, setQuickSearch, setSessionRenameValue, setTerminalFontFamilyId, setTerminalFontSize, setTerminalThemeId, setWorkspaceFocusedSession, setWorkspaceRenameValue, settings, sftpAutoOpenSidebar, sftpFollowTerminalCwd, setSftpFollowTerminalCwd, sftpAutoSync, sftpDefaultViewMode, sftpDoubleClickBehavior, sftpShowHiddenFiles, sftpUseCompressedUpload, shellHistory, snippetPackages, snippets, splitSessionWithCurrentShell, sshDebugLogsEnabled: settings.sshDebugLogsEnabled, startSessionRename, renameSessionInline, startWorkspaceRename, submitSessionRename, submitWorkspaceRename, t, terminalFontFamilyId, terminalFontSize, terminalSettings, terminalThemeId, themeById, toggleBroadcast, toggleConnectionLogSaved, toggleScriptsSidePanelRef, toggleSidePanelRef, toggleWorkspaceViewMode, unmanageSource, updateConnectionLog, updateCustomGroups, updateGroupConfigs, updateHostDistro, updateHosts, updateIdentities, updateKeys, updateKnownHosts, updateManagedSources, updateNoteGroups, updateNotes, updateProxyProfiles, updateSnippetPackages, updateSnippets, updateSplitSizes, updateSessionFontSize, updateSessionRestoreCwd, updateSessionDynamicTitle, updateSessionCodingCliProvider, updateTerminalSetting, workspaceRenameTarget, workspaceRenameValue, workspaces, VaultViewContainer, SftpViewMount, TerminalLayerMount, LogViewWrapper }} />
     </>
   );
 }
 
 function AppWithProviders() {
-  const settings = useSettingsState();
+  const isPeerSessionWindow = typeof window !== 'undefined' && window.location.hash.startsWith('#/session-window');
+  const settings = useSettingsState({
+    enableSettingsSync: !isPeerSessionWindow,
+    enableSystemEffects: !isPeerSessionWindow,
+  });
 
   useEffect(() => {
     try {
