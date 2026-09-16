@@ -21,9 +21,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "../../../ui/tooltip";
 import { Select, SettingCard, SettingRow, Toggle } from "../../../settings/settings-ui";
 import { getBridge } from "./types";
 
-type ExternalMcpClient = "codex" | "claude" | "grok" | "cursor";
+type ExternalMcpClient = "codex" | "claude" | "grok" | "cursor" | "other";
 
-const CLIENT_TABS: ExternalMcpClient[] = ["codex", "claude", "grok", "cursor"];
+const CLIENT_TABS: ExternalMcpClient[] = ["codex", "claude", "grok", "cursor", "other"];
 
 type CopyableCodeBlockProps = {
   label?: string;
@@ -554,7 +554,7 @@ export const ExternalMcpCard: React.FC = () => {
   }, [refreshStatus, t]);
 
   const selectedClientMeta = useMemo(() => {
-    if (selectedClient === "cursor") {
+    if (selectedClient === "cursor" || selectedClient === "other") {
       return {
         kind: "snippet" as const,
         statusView: null as StatusView | null,
@@ -831,7 +831,7 @@ export const ExternalMcpCard: React.FC = () => {
         <div
           role="tablist"
           aria-label={t("ai.externalMcp.clientConfiguration")}
-          className="grid grid-cols-4 gap-1 rounded-md bg-muted p-1"
+          className="grid grid-cols-5 gap-1 rounded-md bg-muted p-1"
         >
           {CLIENT_TABS.map((client) => {
             const active = selectedClient === client;
@@ -880,7 +880,9 @@ export const ExternalMcpCard: React.FC = () => {
             </div>
           ) : (
             <p className="text-xs text-muted-foreground leading-5">
-              {t("ai.externalMcp.cursor.description")}
+              {t(selectedClient === "other"
+                ? "ai.externalMcp.other.description"
+                : "ai.externalMcp.cursor.description")}
             </p>
           )}
 
@@ -919,16 +921,18 @@ export const ExternalMcpCard: React.FC = () => {
                 copiedLabel={t("ai.externalMcp.copied")}
                 emptyLabel={t("ai.externalMcp.unavailable")}
               />
-              <CopyableCodeBlock
-                label={t("ai.externalMcp.universalSetupPrompt")}
-                value={universalSetupPrompt}
-                copyKey="universal-setup-prompt"
-                copied={copied}
-                onCopy={copyText}
-                copyLabel={t("ai.externalMcp.copy")}
-                copiedLabel={t("ai.externalMcp.copied")}
-                emptyLabel={t("ai.externalMcp.unavailable")}
-              />
+              {selectedClient === "other" ? (
+                <CopyableCodeBlock
+                  label={t("ai.externalMcp.universalSetupPrompt")}
+                  value={universalSetupPrompt}
+                  copyKey="universal-setup-prompt"
+                  copied={copied}
+                  onCopy={copyText}
+                  copyLabel={t("ai.externalMcp.copy")}
+                  copiedLabel={t("ai.externalMcp.copied")}
+                  emptyLabel={t("ai.externalMcp.unavailable")}
+                />
+              ) : null}
             </>
           )}
         </div>
