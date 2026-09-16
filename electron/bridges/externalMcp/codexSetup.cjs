@@ -1,11 +1,11 @@
 "use strict";
 
-const os = require("node:os");
 const { runBoundedCliCommand } = require("./boundedCliCommand.cjs");
 const {
-  getNetcattyCodexSkillStatus,
-  installNetcattyCodexSkill,
-} = require("./codexSkillInstaller.cjs");
+  getNetcattySkillStatus,
+  installNetcattySkill,
+  resolveUserHomeDir,
+} = require("./netcattySkillInstaller.cjs");
 
 const EXTERNAL_MCP_CODEX_NAME = "netcatty-external";
 const {
@@ -106,13 +106,6 @@ function hasRequiredDiscoveryEnv(entryEnv, discoveryEnv) {
   return keys.every((key) => String(entryEnv[key] || "") === String(required[key]));
 }
 
-function resolveCodexHomeDir(shellEnv = {}) {
-  if (process.platform === "win32") {
-    return shellEnv.USERPROFILE || shellEnv.HOME || os.homedir();
-  }
-  return shellEnv.HOME || shellEnv.USERPROFILE || os.homedir();
-}
-
 function classifyCodexExternalMcpStatus({
   entries,
   launcherPath,
@@ -191,8 +184,8 @@ function createExternalMcpCodexSetup(options = {}) {
     spawn: options.spawn || require("node:child_process").spawn,
     stripAnsi: options.stripAnsi || loadShellUtils().stripAnsi,
     runCodexCommand: options.runCodexCommand || null,
-    getSkillStatus: options.getSkillStatus || getNetcattyCodexSkillStatus,
-    installSkill: options.installSkill || installNetcattyCodexSkill,
+    getSkillStatus: options.getSkillStatus || getNetcattySkillStatus,
+    installSkill: options.installSkill || installNetcattySkill,
   };
 
   function getManualCommand(cliPath) {
@@ -265,7 +258,8 @@ function createExternalMcpCodexSetup(options = {}) {
       });
       if (status.state === "configured") {
         const skillStatus = await deps.getSkillStatus({
-          homeDir: resolveCodexHomeDir(shellEnv),
+          client: "codex",
+          homeDir: resolveUserHomeDir(shellEnv),
         });
         return {
           ...status,
@@ -320,7 +314,10 @@ function createExternalMcpCodexSetup(options = {}) {
     try {
       if (status.mcpConfigured) {
         installingSkill = true;
-        await deps.installSkill({ homeDir: resolveCodexHomeDir(shellEnv) });
+        await deps.installSkill({
+          client: "codex",
+          homeDir: resolveUserHomeDir(shellEnv),
+        });
         return await getStatus();
       }
       if (status.existingCommand) {
@@ -344,7 +341,10 @@ function createExternalMcpCodexSetup(options = {}) {
       }
       mcpConfigured = true;
       installingSkill = true;
-      await deps.installSkill({ homeDir: resolveCodexHomeDir(shellEnv) });
+      await deps.installSkill({
+        client: "codex",
+        homeDir: resolveUserHomeDir(shellEnv),
+      });
       return await getStatus();
     } catch (error) {
       return {
@@ -374,5 +374,4 @@ module.exports = {
   createExternalMcpCodexSetup,
   parseCodexMcpList,
   classifyCodexExternalMcpStatus,
-  resolveCodexHomeDir,
 };

@@ -7,7 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { createExternalMcpCodexSetup } = require("./codexSetup.cjs");
-const { getUserNetcattySkillPath } = require("./codexSkillInstaller.cjs");
+const { getUserNetcattySkillPath } = require("./netcattySkillInstaller.cjs");
 
 const LAUNCHER_PATH = "/opt/netcatty/netcatty-external-mcp";
 const DISCOVERY_ENV = { NETCATTY_EXTERNAL_MCP_DISCOVERY_FILE: "/tmp/netcatty.json" };
@@ -65,7 +65,7 @@ test("Add to Codex installs both the MCP entry and Netcatty skill", async () => 
     assert.equal(result.mcpConfigured, true);
     assert.equal(result.skillInstalled, true);
     assert.equal(calls.some(args => args[1] === "add"), true);
-    assert.match(await fs.readFile(getUserNetcattySkillPath(homeDir), "utf8"), /name: netcatty-mcp/);
+    assert.match(await fs.readFile(getUserNetcattySkillPath("codex", { homeDir }), "utf8"), /name: netcatty-mcp/);
   });
 });
 
@@ -80,7 +80,7 @@ test("Add to Codex only installs the skill when the MCP entry already exists", a
     assert.equal(result.state, "configured");
     assert.equal(result.skillInstalled, true);
     assert.equal(calls.some(args => args[1] === "add" || args[1] === "remove"), false);
-    assert.match(await fs.readFile(getUserNetcattySkillPath(homeDir), "utf8"), /name: netcatty-mcp/);
+    assert.match(await fs.readFile(getUserNetcattySkillPath("codex", { homeDir }), "utf8"), /name: netcatty-mcp/);
   });
 });
 
@@ -89,7 +89,7 @@ test("Add to Codex preserves an unmanaged skill and reports the conflict", async
   await withSetup({
     initiallyConfigured: true,
     prepareHome: async (homeDir) => {
-      const skillPath = getUserNetcattySkillPath(homeDir);
+      const skillPath = getUserNetcattySkillPath("codex", { homeDir });
       await fs.mkdir(path.dirname(skillPath), { recursive: true });
       await fs.writeFile(skillPath, customContent);
     },
@@ -100,7 +100,7 @@ test("Add to Codex preserves an unmanaged skill and reports the conflict", async
     assert.equal(result.mcpConfigured, true);
     assert.match(result.error, /unmanaged skill already exists/i);
     assert.equal(calls.some(args => args[1] === "add" || args[1] === "remove"), false);
-    assert.equal(await fs.readFile(getUserNetcattySkillPath(homeDir), "utf8"), customContent);
+    assert.equal(await fs.readFile(getUserNetcattySkillPath("codex", { homeDir }), "utf8"), customContent);
   });
 });
 
@@ -108,7 +108,7 @@ test("reports the MCP as configured when a fresh install reaches a skill conflic
   const customContent = "---\nname: netcatty-mcp\ndescription: custom\n---\ncustom\n";
   await withSetup({
     prepareHome: async (homeDir) => {
-      const skillPath = getUserNetcattySkillPath(homeDir);
+      const skillPath = getUserNetcattySkillPath("codex", { homeDir });
       await fs.mkdir(path.dirname(skillPath), { recursive: true });
       await fs.writeFile(skillPath, customContent);
     },
@@ -118,6 +118,6 @@ test("reports the MCP as configured when a fresh install reaches a skill conflic
     assert.equal(result.state, "error");
     assert.equal(result.mcpConfigured, true);
     assert.equal(calls.some(args => args[1] === "add"), true);
-    assert.equal(await fs.readFile(getUserNetcattySkillPath(homeDir), "utf8"), customContent);
+    assert.equal(await fs.readFile(getUserNetcattySkillPath("codex", { homeDir }), "utf8"), customContent);
   });
 });

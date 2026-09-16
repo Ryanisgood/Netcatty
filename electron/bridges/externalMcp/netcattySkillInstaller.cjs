@@ -4,26 +4,50 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 
-const NETCATTY_CODEX_SKILL_NAME = "netcatty-mcp";
+const NETCATTY_EXTERNAL_SKILL_NAME = "netcatty-mcp";
 const NETCATTY_SKILL_MANAGED_MARKER = "managed-by: netcatty";
+const SUPPORTED_SKILL_CLIENTS = new Set(["codex", "claude", "grok"]);
 
 function getBundledNetcattySkillPath() {
   return path.resolve(
     __dirname,
     "../../../skills",
-    NETCATTY_CODEX_SKILL_NAME,
+    NETCATTY_EXTERNAL_SKILL_NAME,
     "SKILL.md",
   ).replace(/app\.asar([\\/])/, "app.asar.unpacked$1");
 }
 
-function getUserNetcattySkillPath(homeDir = os.homedir()) {
-  return path.join(
-    homeDir,
-    ".agents",
-    "skills",
-    NETCATTY_CODEX_SKILL_NAME,
-    "SKILL.md",
-  );
+function resolveUserHomeDir(shellEnv = {}) {
+  if (process.platform === "win32") {
+    return shellEnv.USERPROFILE || shellEnv.HOME || os.homedir();
+  }
+  return shellEnv.HOME || shellEnv.USERPROFILE || os.homedir();
+}
+
+function resolveGrokHomeDir(shellEnv = {}) {
+  const homeDir = resolveUserHomeDir(shellEnv);
+  const configured = typeof shellEnv.GROK_HOME === "string"
+    ? shellEnv.GROK_HOME.trim()
+    : "";
+  if (!configured) return path.join(homeDir, ".grok");
+  if (configured === "~") return homeDir;
+  if (configured.startsWith(`~${path.sep}`) || configured.startsWith("~/")) {
+    return path.join(homeDir, configured.slice(2));
+  }
+  return path.isAbsolute(configured) ? configured : path.resolve(homeDir, configured);
+}
+
+function getUserNetcattySkillPath(client, options = {}) {
+  if (!SUPPORTED_SKILL_CLIENTS.has(client)) {
+    throw new Error(`Unsupported Netcatty skill client: ${client}`);
+  }
+  const homeDir = options.homeDir || os.homedir();
+  const skillRoot = client === "codex"
+    ? path.join(homeDir, ".agents", "skills")
+    : client === "claude"
+      ? path.join(homeDir, ".claude", "skills")
+      : path.join(options.grokHomeDir || path.join(homeDir, ".grok"), "skills");
+  return path.join(skillRoot, NETCATTY_EXTERNAL_SKILL_NAME, "SKILL.md");
 }
 
 async function lstatIfPresent(filePath, fsApi) {
@@ -43,10 +67,10 @@ async function readBundledSkill(sourcePath, fsApi) {
   return content;
 }
 
-async function getNetcattyCodexSkillStatus(options = {}) {
+async function getNetcattySkillStatus(options = {}) {
   const fsApi = options.fs || fs;
   const sourcePath = options.sourcePath || getBundledNetcattySkillPath();
-  const skillPath = options.skillPath || getUserNetcattySkillPath(options.homeDir);
+  const skillPath = options.skillPath || getUserNetcattySkillPath(options.client, options);
   const expectedContent = await readBundledSkill(sourcePath, fsApi);
   const skillDir = path.dirname(skillPath);
   const dirStat = await lstatIfPresent(skillDir, fsApi);
@@ -86,11 +110,11 @@ async function getNetcattyCodexSkillStatus(options = {}) {
   };
 }
 
-async function installNetcattyCodexSkill(options = {}) {
+async function installNetcattySkill(options = {}) {
   const fsApi = options.fs || fs;
   const sourcePath = options.sourcePath || getBundledNetcattySkillPath();
-  const skillPath = options.skillPath || getUserNetcattySkillPath(options.homeDir);
-  const status = await getNetcattyCodexSkillStatus({ fs: fsApi, sourcePath, skillPath });
+  const skillPath = options.skillPath || getUserNetcattySkillPath(options.client, options);
+  const status = await getNetcattySkillStatus({ ...options, fs: fsApi, sourcePath, skillPath });
 
   if (status.installed) {
     return { ...status, changed: false };
@@ -114,10 +138,12 @@ async function installNetcattyCodexSkill(options = {}) {
 }
 
 module.exports = {
-  NETCATTY_CODEX_SKILL_NAME,
+  NETCATTY_EXTERNAL_SKILL_NAME,
   NETCATTY_SKILL_MANAGED_MARKER,
   getBundledNetcattySkillPath,
   getUserNetcattySkillPath,
-  getNetcattyCodexSkillStatus,
-  installNetcattyCodexSkill,
+  resolveUserHomeDir,
+  resolveGrokHomeDir,
+  getNetcattySkillStatus,
+  installNetcattySkill,
 };
