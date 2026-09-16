@@ -304,6 +304,7 @@ export const ExternalMcpCard: React.FC = () => {
   const [codexStatus, setCodexStatus] = useState<ClientSetupStatus | null>(null);
   const [claudeStatus, setClaudeStatus] = useState<ClientSetupStatus | null>(null);
   const [grokStatus, setGrokStatus] = useState<ClientSetupStatus | null>(null);
+  const [universalSetupPrompt, setUniversalSetupPrompt] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isAddingCodex, setIsAddingCodex] = useState(false);
   const [isAddingClaude, setIsAddingClaude] = useState(false);
@@ -386,11 +387,19 @@ export const ExternalMcpCard: React.FC = () => {
     if (!options?.quiet) setIsRefreshing(true);
     try {
       if (includeClients) {
-        const [nextStatus, nextCodexStatus, nextClaudeStatus, nextGrokStatus] = await Promise.all([
+        const [
+          nextStatus,
+          nextCodexStatus,
+          nextClaudeStatus,
+          nextGrokStatus,
+          nextUniversalPrompt,
+        ] = await Promise.all([
           bridge.externalMcpGetStatus(),
           bridge.externalMcpCodexGetStatus(),
           bridge.externalMcpClaudeGetStatus(),
           bridge.externalMcpGrokGetStatus(),
+          bridge.externalMcpGetUniversalSetupPrompt?.()
+            ?? Promise.resolve({ ok: false, prompt: "" }),
         ]);
         setStatus(nextStatus as ExternalMcpStatus);
         if (enabled && nextStatus?.ok && !nextStatus.enabled) {
@@ -399,6 +408,11 @@ export const ExternalMcpCard: React.FC = () => {
         setCodexStatus(nextCodexStatus as ClientSetupStatus);
         setClaudeStatus(nextClaudeStatus as ClientSetupStatus);
         setGrokStatus(nextGrokStatus as ClientSetupStatus);
+        setUniversalSetupPrompt(
+          nextUniversalPrompt.ok && typeof nextUniversalPrompt.prompt === "string"
+            ? nextUniversalPrompt.prompt
+            : "",
+        );
       } else {
         const nextStatus = await bridge.externalMcpGetStatus();
         setStatus(nextStatus as ExternalMcpStatus);
@@ -894,16 +908,28 @@ export const ExternalMcpCard: React.FC = () => {
               />
             </>
           ) : (
-            <CopyableCodeBlock
-              label={t("ai.externalMcp.configSnippet")}
-              value={selectedClientMeta.snippet}
-              copyKey="cursor"
-              copied={copied}
-              onCopy={copyText}
-              copyLabel={t("ai.externalMcp.copy")}
-              copiedLabel={t("ai.externalMcp.copied")}
-              emptyLabel={t("ai.externalMcp.unavailable")}
-            />
+            <>
+              <CopyableCodeBlock
+                label={t("ai.externalMcp.configSnippet")}
+                value={selectedClientMeta.snippet}
+                copyKey="cursor"
+                copied={copied}
+                onCopy={copyText}
+                copyLabel={t("ai.externalMcp.copy")}
+                copiedLabel={t("ai.externalMcp.copied")}
+                emptyLabel={t("ai.externalMcp.unavailable")}
+              />
+              <CopyableCodeBlock
+                label={t("ai.externalMcp.universalSetupPrompt")}
+                value={universalSetupPrompt}
+                copyKey="universal-setup-prompt"
+                copied={copied}
+                onCopy={copyText}
+                copyLabel={t("ai.externalMcp.copy")}
+                copiedLabel={t("ai.externalMcp.copied")}
+                emptyLabel={t("ai.externalMcp.unavailable")}
+              />
+            </>
           )}
         </div>
       </div>

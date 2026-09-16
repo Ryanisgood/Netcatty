@@ -67,6 +67,12 @@ async function readBundledSkill(sourcePath, fsApi) {
   return content;
 }
 
+async function readBundledNetcattySkillContent(options = {}) {
+  const fsApi = options.fs || fs;
+  const sourcePath = options.sourcePath || getBundledNetcattySkillPath();
+  return await readBundledSkill(sourcePath, fsApi);
+}
+
 async function getNetcattySkillStatus(options = {}) {
   const fsApi = options.fs || fs;
   const sourcePath = options.sourcePath || getBundledNetcattySkillPath();
@@ -144,6 +150,7 @@ module.exports = {
   getUserNetcattySkillPath,
   resolveUserHomeDir,
   resolveGrokHomeDir,
+  readBundledNetcattySkillContent,
   getNetcattySkillStatus,
   installNetcattySkill,
 };
