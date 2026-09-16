@@ -13,7 +13,7 @@ const { McpServer } = require("@modelcontextprotocol/sdk/server/mcp.js");
 const { StdioServerTransport } = require("@modelcontextprotocol/sdk/server/stdio.js");
 const { getCatalogToolDescription } = require("./catalogToolMetadata.cjs");
 const { NETCATTY_MCP_SERVER_INSTRUCTIONS } = require("./netcattyMcpInstructions.cjs");
-const { registerMcpTools } = require("../capabilities/codegen/mcpToolRegistry.cjs");
+const { registerProgressiveMcpTools } = require("./progressiveMcpTools.cjs");
 const { normalizeMcpJsonRpcMessage } = require("./normalizeMcpCallArguments.cjs");
 
 function catalogDescription(toolName, fallback) {
@@ -230,8 +230,8 @@ server.resource(
   },
 );
 
-// Register catalog-driven MCP tools (terminal, SFTP, attachments, vault, portforward).
-registerMcpTools(server, {
+// Start with core tools; load specialized catalog groups through load_netcatty_tools.
+registerProgressiveMcpTools(server, {
   rpcCall,
   scopeParams,
   guardWriteOperation,

@@ -15,6 +15,9 @@ test("MCP server instructions route Netcatty terminal work through environment d
   assert.match(NETCATTY_MCP_SERVER_INSTRUCTIONS, /label or hostname/i);
   assert.match(NETCATTY_MCP_SERVER_INSTRUCTIONS, /sessionId/);
   assert.match(NETCATTY_MCP_SERVER_INSTRUCTIONS, /Never use the local shell/i);
+  assert.match(NETCATTY_MCP_SERVER_INSTRUCTIONS, /vault_hosts_list and host_open/);
+  assert.match(NETCATTY_MCP_SERVER_INSTRUCTIONS, /load_netcatty_tools/);
+  assert.match(NETCATTY_MCP_SERVER_INSTRUCTIONS, /15 core tools/);
 });
 
 test("stdio MCP server publishes the routing instructions during initialization", () => {
