@@ -12,6 +12,7 @@ const net = require("node:net");
 const { McpServer } = require("@modelcontextprotocol/sdk/server/mcp.js");
 const { StdioServerTransport } = require("@modelcontextprotocol/sdk/server/stdio.js");
 const { getCatalogToolDescription } = require("./catalogToolMetadata.cjs");
+const { NETCATTY_MCP_SERVER_INSTRUCTIONS } = require("./netcattyMcpInstructions.cjs");
 const { registerMcpTools } = require("../capabilities/codegen/mcpToolRegistry.cjs");
 const { normalizeMcpJsonRpcMessage } = require("./normalizeMcpCallArguments.cjs");
 
@@ -200,6 +201,8 @@ function rpcCall(method, params) {
 const server = new McpServer({
   name: "netcatty-remote-hosts",
   version: "1.0.0",
+}, {
+  instructions: NETCATTY_MCP_SERVER_INSTRUCTIONS,
 });
 
 // Scope params shared by all tool calls.
