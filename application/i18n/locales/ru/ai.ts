@@ -328,7 +328,7 @@ export const ruAiMessages: Messages = {
   'ai.externalMcp.addToCodex': 'Добавить в Codex',
   'ai.externalMcp.addToClaude': 'Добавить в Claude Code',
   'ai.externalMcp.addToGrok': 'Добавить в Grok',
-  'ai.externalMcp.codexAdded': 'Запись MCP для Codex добавлена. Перезапустите Codex или откройте новую сессию.',
+  'ai.externalMcp.codexAdded': 'Запись MCP для Codex и навык Netcatty добавлены. Перезапустите Codex или откройте новую сессию.',
   'ai.externalMcp.claudeAdded': 'Запись MCP для Claude Code добавлена. Перезапустите Claude Code или откройте новую сессию.',
   'ai.externalMcp.grokAdded': 'Запись MCP для Grok добавлена. Перезапустите Grok или откройте новую сессию.',
   'ai.externalMcp.installCodex': 'Сначала установите Codex, затем нажмите Обновить.',

@@ -359,7 +359,7 @@ export const zhTWAiMessages: Messages = {
   'ai.externalMcp.addToCodex': '新增到 Codex',
   'ai.externalMcp.addToClaude': '新增到 Claude Code',
   'ai.externalMcp.addToGrok': '新增到 Grok',
-  'ai.externalMcp.codexAdded': '已新增 Codex MCP 項目。請重新啟動 Codex 或開啟新工作階段。',
+  'ai.externalMcp.codexAdded': '已新增 Codex MCP 項目和 Netcatty Skill。請重新啟動 Codex 或開啟新工作階段。',
   'ai.externalMcp.claudeAdded': '已新增 Claude Code MCP 項目。請重新啟動 Claude Code 或開啟新工作階段。',
   'ai.externalMcp.grokAdded': '已新增 Grok MCP 項目。請重新啟動 Grok 或開啟新工作階段。',
   'ai.externalMcp.installCodex': '請先另外安裝 Codex，然後按重新整理。',

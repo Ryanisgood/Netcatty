@@ -360,7 +360,7 @@ export const esAiMessages: Messages = {
   'ai.externalMcp.addToCodex': 'Agregar a Codex',
   'ai.externalMcp.addToClaude': 'Agregar a Claude Code',
   'ai.externalMcp.addToGrok': 'Agregar a Grok',
-  'ai.externalMcp.codexAdded': 'Entrada de MCP de Codex agregada. Reinicia Codex o abre una nueva sesión de Codex.',
+  'ai.externalMcp.codexAdded': 'Entrada MCP de Codex y skill de Netcatty agregados. Reinicia Codex o abre una nueva sesión de Codex.',
   'ai.externalMcp.claudeAdded': 'Entrada de MCP de Claude Code agregada. Reinicia Claude Code o abre una nueva sesión de Claude Code.',
   'ai.externalMcp.grokAdded': 'Entrada de MCP de Grok agregada. Reinicia Grok o abre una nueva sesión de Grok.',
   'ai.externalMcp.installCodex': 'Instala Codex por separado y luego haz clic en Actualizar.',

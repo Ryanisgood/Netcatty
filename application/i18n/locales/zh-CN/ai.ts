@@ -369,7 +369,7 @@ export const zhCNAiMessages: Messages = {
   'ai.externalMcp.addToCodex': '添加到 Codex',
   'ai.externalMcp.addToClaude': '添加到 Claude Code',
   'ai.externalMcp.addToGrok': '添加到 Grok',
-  'ai.externalMcp.codexAdded': '已添加 Codex MCP 条目。请重启 Codex 或打开新会话。',
+  'ai.externalMcp.codexAdded': '已添加 Codex MCP 条目和 Netcatty Skill。请重启 Codex 或打开新会话。',
   'ai.externalMcp.claudeAdded': '已添加 Claude Code MCP 条目。请重启 Claude Code 或打开新会话。',
   'ai.externalMcp.grokAdded': '已添加 Grok MCP 条目。请重启 Grok 或打开新会话。',
   'ai.externalMcp.installCodex': '请先单独安装 Codex，然后点击刷新。',

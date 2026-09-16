@@ -369,7 +369,7 @@ export const enAiMessages: Messages = {
   'ai.externalMcp.addToCodex': 'Add to Codex',
   'ai.externalMcp.addToClaude': 'Add to Claude Code',
   'ai.externalMcp.addToGrok': 'Add to Grok',
-  'ai.externalMcp.codexAdded': 'Codex MCP entry added. Restart Codex or open a new Codex session.',
+  'ai.externalMcp.codexAdded': 'Codex MCP entry and Netcatty skill added. Restart Codex or open a new Codex session.',
   'ai.externalMcp.claudeAdded': 'Claude Code MCP entry added. Restart Claude Code or open a new Claude Code session.',
   'ai.externalMcp.grokAdded': 'Grok MCP entry added. Restart Grok or open a new Grok session.',
   'ai.externalMcp.installCodex': 'Install Codex separately, then click Refresh.',
