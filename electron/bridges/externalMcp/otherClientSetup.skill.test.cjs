@@ -13,15 +13,16 @@ const { getUserNetcattySkillPath } = require("./netcattySkillInstaller.cjs");
 const LAUNCHER_PATH = "/opt/netcatty/netcatty-external-mcp";
 const DISCOVERY_ENV = { NETCATTY_EXTERNAL_MCP_DISCOVERY_FILE: "/tmp/netcatty.json" };
 
-async function withClaudeSetup(initiallyConfigured, run) {
+async function withClaudeSetup(initiallyConfigured, run, customConfig = false) {
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), "netcatty-claude-setup-"));
+  const claudeConfigDir = customConfig ? path.join(homeDir, "custom claude") : undefined;
   let mcpConfigured = initiallyConfigured;
   const calls = [];
   try {
     const setup = createExternalMcpClaudeSetup({
       launcherPath: LAUNCHER_PATH,
       discoveryEnv: DISCOVERY_ENV,
-      getShellEnv: async () => ({ HOME: homeDir }),
+      getShellEnv: async () => ({ HOME: homeDir, CLAUDE_CONFIG_DIR: claudeConfigDir }),
       resolveCliFromPath: () => "/usr/bin/claude",
       resolveDesktopManagedCli: () => null,
       runClaudeCommand: async (_claudePath, _shellEnv, args) => {
@@ -52,7 +53,7 @@ async function withClaudeSetup(initiallyConfigured, run) {
         throw new Error(`Unexpected Claude args: ${args.join(" ")}`);
       },
     });
-    await run({ setup, calls, homeDir });
+    await run({ setup, calls, homeDir, claudeConfigDir });
   } finally {
     await fs.rm(homeDir, { recursive: true, force: true });
   }
@@ -150,3 +151,24 @@ test("Add to Grok only installs the skill when MCP already exists", async () => 
     assert.match(await fs.readFile(skillPath, "utf8"), /name: netcatty-mcp/);
   });
 });
+
+for (const initiallyConfigured of [false, true]) {
+  test(`Claude custom config directory is used for skill setup and status (MCP exists: ${initiallyConfigured})`, async () => {
+    await withClaudeSetup(initiallyConfigured, async ({ setup, homeDir, claudeConfigDir }) => {
+      const defaultSkillPath = getUserNetcattySkillPath("claude", { homeDir });
+      await fs.mkdir(path.dirname(defaultSkillPath), { recursive: true });
+      const { getBundledNetcattySkillPath } = require("./netcattySkillInstaller.cjs");
+      await fs.copyFile(getBundledNetcattySkillPath(), defaultSkillPath);
+      const before = await setup.getStatus();
+      assert.equal(before.state, "not_configured");
+
+      const result = await setup.addToClaude();
+      const expectedPath = path.join(claudeConfigDir, "skills", "netcatty-mcp", "SKILL.md");
+      assert.equal(result.state, "configured");
+      assert.equal(result.skillPath, expectedPath);
+      assert.match(await fs.readFile(expectedPath, "utf8"), /name: netcatty-mcp/);
+      await fs.rm(expectedPath);
+      assert.equal((await setup.getStatus()).state, "not_configured");
+    }, true);
+  });
+}

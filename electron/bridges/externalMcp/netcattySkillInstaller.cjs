@@ -45,7 +45,7 @@ function getUserNetcattySkillPath(client, options = {}) {
   const skillRoot = client === "codex"
     ? path.join(homeDir, ".agents", "skills")
     : client === "claude"
-      ? path.join(homeDir, ".claude", "skills")
+      ? path.join(options.claudeConfigDir || path.join(homeDir, ".claude"), "skills")
       : path.join(options.grokHomeDir || path.join(homeDir, ".grok"), "skills");
   return path.join(skillRoot, NETCATTY_EXTERNAL_SKILL_NAME, "SKILL.md");
 }

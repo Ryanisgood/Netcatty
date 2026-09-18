@@ -353,6 +353,7 @@ function createExternalMcpClaudeSetup(options = {}) {
         const skillStatus = await deps.getSkillStatus({
           client: "claude",
           homeDir: resolveUserHomeDir(shellEnv),
+          claudeConfigDir: shellEnv.CLAUDE_CONFIG_DIR,
         });
         return {
           ...status,
@@ -411,6 +412,7 @@ function createExternalMcpClaudeSetup(options = {}) {
         await deps.installSkill({
           client: "claude",
           homeDir: resolveUserHomeDir(shellEnv),
+          claudeConfigDir: shellEnv.CLAUDE_CONFIG_DIR,
         });
         return await getStatus();
       }
@@ -449,6 +451,7 @@ function createExternalMcpClaudeSetup(options = {}) {
       await deps.installSkill({
         client: "claude",
         homeDir: resolveUserHomeDir(shellEnv),
+        claudeConfigDir: shellEnv.CLAUDE_CONFIG_DIR,
       });
       return await getStatus();
     } catch (error) {
